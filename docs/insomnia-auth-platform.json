@@ -23,16 +23,13 @@
         "base_url": "http://localhost:8080",
         "auth_url": "http://localhost:8081",
         "authz_url": "http://localhost:8082",
-        "eureka_url": "http://localhost:8761",
         "access_token": "",
         "refresh_token": "",
         "username": "john.doe",
         "password": "password123",
         "app_id": "portal-xpto",
         "app_client_id": "",
-        "role_id": "",
-        "eureka_user": "eureka",
-        "eureka_password": "eureka-secret"
+        "role_id": ""
       },
       "color": null,
       "isPrivate": false
@@ -47,7 +44,6 @@
         "base_url": "http://localhost:8080",
         "auth_url": "http://localhost:8081",
         "authz_url": "http://localhost:8082",
-        "eureka_url": "http://localhost:8761",
         "username": "john.doe",
         "password": "password123",
         "app_id": "portal-xpto"
@@ -64,7 +60,6 @@
         "base_url": "https://auth-platform.empresa.com",
         "auth_url": "https://auth-platform.empresa.com",
         "authz_url": "https://auth-platform.empresa.com",
-        "eureka_url": "https://eureka.auth-platform.empresa.com",
         "username": "seu.usuario",
         "password": "sua-senha-ad",
         "app_id": "portal-xpto"
@@ -120,46 +115,6 @@
       "authentication": {},
       "parameters": [],
       "description": "Verifica saúde do Authorization Service diretamente (porta 8082).\nInclui status do PostgreSQL."
-    },
-
-    {
-      "_id": "req_health_eureka",
-      "_type": "request",
-      "parentId": "fld_health",
-      "name": "Eureka Server",
-      "method": "GET",
-      "url": "{{ eureka_url }}/actuator/health",
-      "body": {},
-      "headers": [
-        {"name": "Authorization", "value": "Basic ZXVyZWthOmV1cmVrYS1zZWNyZXQ=", "description": "eureka:eureka-secret em base64"}
-      ],
-      "authentication": {
-        "type": "basic",
-        "username": "{{ eureka_user }}",
-        "password": "{{ eureka_password }}"
-      },
-      "parameters": [],
-      "description": "Verifica saúde do Eureka Server (porta 8761)."
-    },
-
-    {
-      "_id": "req_eureka_apps",
-      "_type": "request",
-      "parentId": "fld_health",
-      "name": "Eureka - Servicos Registrados",
-      "method": "GET",
-      "url": "{{ eureka_url }}/eureka/apps",
-      "body": {},
-      "headers": [
-        {"name": "Accept", "value": "application/json"}
-      ],
-      "authentication": {
-        "type": "basic",
-        "username": "{{ eureka_user }}",
-        "password": "{{ eureka_password }}"
-      },
-      "parameters": [],
-      "description": "Lista todos os serviços registrados no Eureka.\nVerifique se auth-service, authorization-service e api-gateway aparecem com status UP."
     },
 
     {

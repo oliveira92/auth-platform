@@ -49,7 +49,7 @@ Usuário → Aplicação → API Gateway (8080)
 
 ## Arquitetura
 
-O projeto segue **Arquitetura Hexagonal (Ports & Adapters)** + **Domain Driven Design (DDD)** em uma estrutura de **microsserviços**.
+O projeto segue **Arquitetura Hexagonal (Ports & Adapters)** + **Domain Driven Design (DDD)** em uma estrutura de **microsserviços independentes**.
 
 ### Diagrama C4
 
@@ -109,9 +109,8 @@ auth-service/
 
 | Camada | Tecnologia | Versão |
 |--------|-----------|--------|
-| Linguagem | Java | 25 (LTS) |
+| Linguagem | Java | 21 (LTS) |
 | Framework | Spring Boot | 3.4.4 |
-| Service Discovery | Spring Cloud Netflix Eureka | 2024.0.1 |
 | Gateway | Spring Cloud Gateway | 2024.0.1 |
 | LDAP | Spring LDAP Core + Spring Security LDAP | 3.x |
 | JWT | JJWT (jjwt-api) | 0.12.6 |
@@ -124,7 +123,7 @@ auth-service/
 | Métricas | Micrometer + Prometheus | 1.14.x |
 | Docs API | SpringDoc OpenAPI (Swagger UI) | 2.8.4 |
 | Threads | Virtual Threads (Java 21+) | — |
-| Container | eclipse-temurin:25-jre-alpine | — |
+| Container | eclipse-temurin:21-jre-alpine | — |
 | Local AWS | LocalStack | 3.4 |
 | Local LDAP | OpenLDAP (osixia/openldap) | 1.5.0 |
 
@@ -132,15 +131,19 @@ auth-service/
 
 ## Estrutura do Projeto
 
+Cada microsserviço é um projeto Spring Boot **independente**, com seu próprio `pom.xml` e ciclo de build autônomo. Eles coexistem no mesmo repositório (monorepo), mas não possuem dependência de POM pai compartilhado.
+
 ```
 auth-platform/
-├── pom.xml                          ← Parent POM (BOM de dependências)
 ├── docker-compose.yml               ← Ambiente local completo
+├── Makefile                         ← Atalhos de build e execução
 ├── .gitignore
 ├── README.md
 │
 ├── docs/
-│   └── c4-architecture.drawio       ← Diagrama C4 (4 níveis)
+│   ├── c4-architecture.drawio       ← Diagrama C4 (4 níveis)
+│   ├── guia-modulos-e-testes.md     ← Guia detalhado de módulos e testes
+│   └── insomnia-auth-platform.json  ← Collection Insomnia parametrizada
 │
 ├── scripts/
 │   ├── aws/
@@ -151,10 +154,20 @@ auth-platform/
 │   └── ldap/
 │       └── bootstrap.ldif           ← Usuários/grupos de teste OpenLDAP
 │
-├── eureka-server/                   ← Service Registry
-├── auth-service/                    ← Autenticação LDAP + JWT
-├── authorization-service/           ← RBAC + Registro de Aplicações
-└── api-gateway/                     ← API Gateway (Spring Cloud Gateway)
+├── auth-service/                    ← Microsserviço: Autenticação LDAP + JWT
+│   ├── pom.xml                      ← Spring Boot parent independente
+│   ├── Dockerfile
+│   └── src/
+│
+├── authorization-service/           ← Microsserviço: RBAC + Registro de Aplicações
+│   ├── pom.xml                      ← Spring Boot parent independente
+│   ├── Dockerfile
+│   └── src/
+│
+└── api-gateway/                     ← Microsserviço: API Gateway (Spring Cloud Gateway)
+    ├── pom.xml                      ← Spring Boot parent independente
+    ├── Dockerfile
+    └── src/
 ```
 
 ---
@@ -165,8 +178,8 @@ auth-platform/
 
 - **Docker** 24+ e **Docker Compose** V2
 - **Rancher Desktop** (ou Docker Desktop)
-- **Java 25** (JDK — para build local)
-- **Maven 3.9+** (ou use o wrapper `./mvnw`)
+- **Java 21** (JDK — para build local)
+- **Maven 3.9+**
 - **OpenSSL** (para geração de chaves RSA)
 
 ### Passo a Passo
@@ -193,27 +206,32 @@ Isso cria:
 
 #### 3. Build dos serviços
 
-```bash
-# Build de todos os módulos
-./mvnw clean package -DskipTests
+Cada serviço é construído de forma independente a partir de seu próprio diretório:
 
-# Ou individual
-./mvnw clean package -pl auth-service -DskipTests
+```bash
+# Build de todos os serviços (via Makefile)
+make build
+
+# Ou individualmente
+cd auth-service && mvn clean package -DskipTests
+cd authorization-service && mvn clean package -DskipTests
+cd api-gateway && mvn clean package -DskipTests
 ```
 
 #### 4. Subir o ambiente
 
 ```bash
-docker-compose up -d
+docker compose up -d
+# ou via Makefile:
+make up
 ```
 
 **Ordem de inicialização** (automática via `depends_on`):
 
 ```
-1. postgres, redis, openldap, localstack   (infra)
-2. eureka-server                            (service registry)
-3. auth-service, authorization-service      (backend)
-4. api-gateway                              (entry point)
+1. postgres, redis, openldap, localstack   (infraestrutura)
+2. auth-service, authorization-service     (serviços de negócio)
+3. api-gateway                             (ponto de entrada)
 ```
 
 > O LocalStack inicializa automaticamente os segredos/parâmetros AWS via  
@@ -223,10 +241,9 @@ docker-compose up -d
 
 ```bash
 # Status de todos os containers
-docker-compose ps
+docker compose ps
 
 # Health checks individuais
-curl http://localhost:8761/actuator/health    # Eureka
 curl http://localhost:8081/actuator/health    # Auth Service
 curl http://localhost:8082/actuator/health    # Authorization Service
 curl http://localhost:8080/actuator/health    # API Gateway
@@ -238,7 +255,6 @@ curl http://localhost:8080/actuator/health    # API Gateway
 |---------|-----|-------------|
 | API Gateway (entrada) | http://localhost:8080 | — |
 | Swagger UI (aggregado) | http://localhost:8080/swagger-ui.html | — |
-| Eureka Dashboard | http://localhost:8761 | eureka / eureka-secret |
 | phpLDAPadmin | http://localhost:8090 | cn=admin,dc=authplatform,dc=com / admin |
 | Auth Service Swagger | http://localhost:8081/swagger-ui.html | — |
 | Authorization Swagger | http://localhost:8082/swagger-ui.html | — |
@@ -512,10 +528,8 @@ Registra uma nova aplicação (self-service).
 Sua aplicação pode validar tokens **localmente** usando a chave pública RSA sem chamar o Auth Service:
 
 ```java
-// Adicionar ao seu serviço:
 // 1. Obter public key do AWS Secrets Manager: auth-platform/shared/jwt-public-key
 // 2. Validar com JJWT:
-
 Claims claims = Jwts.parser()
     .verifyWith(publicKey)   // RSA public key
     .build()
@@ -619,10 +633,10 @@ kubectl apply -f k8s/
 - [x] RBAC básico (roles e permissões por aplicação)
 - [x] Auto-registro de aplicações
 - [x] API Gateway com validação JWT
-- [x] Service discovery (Eureka)
 - [x] AWS Parameter Store + Secrets Manager
 - [x] Docker Compose para ambiente local
 - [x] OpenAPI / Swagger UI
+- [x] Microsserviços independentes (sem acoplamento de build)
 
 ### Fase 2 (v1.1.0)
 
@@ -658,6 +672,7 @@ kubectl apply -f k8s/
 - **Adapters**: implementações em `infrastructure/`
 - **Use Cases**: orquestração em `application/usecase`
 - **Sem lógica de negócio na infra**: infra só adapta
+- **Build independente**: cada serviço se constrói a partir de seu próprio diretório
 
 ---
 

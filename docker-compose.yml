@@ -118,8 +118,8 @@ services:
 
   auth-service:
     build:
-      context: .
-      dockerfile: auth-service/Dockerfile
+      context: ./auth-service
+      dockerfile: Dockerfile
     container_name: auth-service
     environment:
       SPRING_PROFILES_ACTIVE: local
@@ -161,8 +161,8 @@ services:
 
   authorization-service:
     build:
-      context: .
-      dockerfile: authorization-service/Dockerfile
+      context: ./authorization-service
+      dockerfile: Dockerfile
     container_name: auth-authorization
     environment:
       SPRING_PROFILES_ACTIVE: local
@@ -192,8 +192,8 @@ services:
 
   api-gateway:
     build:
-      context: .
-      dockerfile: api-gateway/Dockerfile
+      context: ./api-gateway
+      dockerfile: Dockerfile
     container_name: auth-gateway
     environment:
       SPRING_PROFILES_ACTIVE: local

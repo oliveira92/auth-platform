@@ -1,12 +1,11 @@
-FROM eclipse-temurin:21-jdk-alpine AS builder
-WORKDIR /workspace
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+WORKDIR /app
 
 COPY pom.xml .
-COPY authorization-service/pom.xml authorization-service/
-COPY authorization-service/src authorization-service/src
+RUN mvn dependency:go-offline -q
 
-RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -pl authorization-service -am package -DskipTests
+COPY src src
+RUN mvn package -DskipTests -q
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
@@ -14,7 +13,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-COPY --from=builder /workspace/authorization-service/target/*.jar app.jar
+COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8082
 

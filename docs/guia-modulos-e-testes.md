@@ -1,49 +1,28 @@
-# Auth Platform — Guia de Módulos, Testes e Integração
+# Auth Platform — Guia de Microsserviços, Testes e Integração
 
 ---
 
 ## Sumário
 
-1. [Função de Cada Módulo](#1-função-de-cada-módulo)
-2. [Como os Módulos se Comunicam](#2-como-os-módulos-se-comunicam)
+1. [Função de Cada Microsserviço](#1-função-de-cada-microsserviço)
+2. [Como os Serviços se Comunicam](#2-como-os-serviços-se-comunicam)
 3. [Como Testar e Homologar](#3-como-testar-e-homologar)
 4. [Exemplo Prático: Portal XPTO](#4-exemplo-prático-portal-xpto)
 5. [Collection Insomnia](#5-collection-insomnia)
 
 ---
 
-## 1. Função de Cada Módulo
+## 1. Função de Cada Microsserviço
 
-### 1.1 `eureka-server` — O Catálogo de Serviços
-
-**O que faz:** É o "catálogo telefônico" interno da plataforma. Cada microsserviço ao subir se registra aqui informando seu nome, IP e porta. Quando o API Gateway precisa encaminhar uma requisição para o `auth-service`, ele pergunta ao Eureka: "onde está o auth-service?" e recebe o endereço atual.
-
-**Por que existe:** Sem ele, os serviços precisariam de IPs/hostnames hardcodados. Em ambientes containerizados (Docker, Kubernetes, Rancher), os IPs mudam. O Eureka elimina esse acoplamento.
-
-**O que acontece sem ele:** Os outros serviços não conseguem se descobrir. O Gateway não sabe para onde rotear as requisições.
-
-**Porta:** 8761  
-**Interface:** http://localhost:8761 (dashboard visual dos serviços registrados)
-
-```
-Fluxo de registro (automático na subida):
-auth-service inicia
-   → "Olá Eureka, sou o auth-service, estou em 172.18.0.5:8081, status UP"
-   → Eureka registra e começa a monitorar o heartbeat a cada 10s
-
-API Gateway recebe requisição para /api/v1/auth/login
-   → "Eureka, qual o endereço do auth-service?"
-   → Eureka responde: "172.18.0.5:8081"
-   → Gateway encaminha para lá
-```
+A plataforma é composta por **3 microsserviços independentes**. Cada um possui seu próprio `pom.xml`, ciclo de build, Dockerfile e pode ser desenvolvido, testado e implantado de forma autônoma.
 
 ---
 
-### 1.2 `auth-service` — O Guardião de Identidade
+### 1.1 `auth-service` — O Guardião de Identidade
 
 **O que faz:** É o coração da plataforma. Tem uma responsabilidade única: **"quem é você?"**
 
-Recebe usuário e senha, vai ao LDAP/AD validar as credenciais, busca os grupos do usuário, e emite um par de tokens JWT assinados com a chave RSA privada.
+Recebe usuário e senha, vai ao LDAP/AD validar as credenciais, busca os grupos do usuário e emite um par de tokens JWT assinados com a chave RSA privada.
 
 **Fluxo interno detalhado:**
 
@@ -87,9 +66,15 @@ Retorna TokenPair{accessToken, refreshToken, expiresIn: 900}
 | DELETE | `/api/v1/auth/logout` | Revogar token atual |
 | DELETE | `/api/v1/auth/logout/all` | Revogar todos os tokens do usuário |
 
+**Build independente:**
+```bash
+cd auth-service
+mvn clean package -DskipTests
+```
+
 ---
 
-### 1.3 `authorization-service` — O Fiscal de Permissões
+### 1.2 `authorization-service` — O Fiscal de Permissões
 
 **O que faz:** Responde à pergunta **"o que você pode fazer?"**
 
@@ -131,12 +116,22 @@ Atribuições:
 | POST | `/api/v1/applications` | Registrar aplicação (self-service) |
 | PUT | `/api/v1/applications/{id}` | Atualizar aplicação |
 | DELETE | `/api/v1/applications/{id}` | Desativar aplicação |
+| POST | `/api/v1/roles` | Criar role |
+| GET | `/api/v1/roles?applicationId=` | Listar roles da aplicação |
+| POST | `/api/v1/roles/{id}/assignments` | Atribuir role a usuário |
+| DELETE | `/api/v1/roles/{id}/assignments` | Revogar role de usuário |
 | GET | `/api/v1/authorization/check` | Verificar permissão |
 | GET | `/api/v1/authorization/permissions` | Listar permissões do usuário |
 
+**Build independente:**
+```bash
+cd authorization-service
+mvn clean package -DskipTests
+```
+
 ---
 
-### 1.4 `api-gateway` — O Portão de Entrada
+### 1.3 `api-gateway` — O Portão de Entrada
 
 **O que faz:** É o **único ponto de contato** das aplicações externas com a plataforma. Nenhum serviço downstream deve ser chamado diretamente pelas aplicações clientes.
 
@@ -164,53 +159,60 @@ X-Correlation-ID: uuid-rastreabilidade
 ```
 Os serviços downstream recebem esses headers e *não precisam* saber de JWT.
 
-**3. Roteamento Dinâmico**
+**3. Roteamento por URL direta**
 ```
-/api/v1/auth/**         → lb://auth-service (load balanced via Eureka)
-/api/v1/authorization/**→ lb://authorization-service
-/api/v1/applications/** → lb://authorization-service
+/api/v1/auth/**              → http://auth-service:8081
+/api/v1/authorization/**     → http://authorization-service:8082
+/api/v1/applications/**      → http://authorization-service:8082
+/api/v1/roles/**             → http://authorization-service:8082
 ```
+
+Os endereços dos serviços são configurados via variáveis de ambiente (`AUTH_SERVICE_HOST`, `AUTHZ_SERVICE_HOST`), com padrão baseado nos nomes dos containers Docker.
 
 **Porta:** 8080 (único ponto de entrada)
 
+**Build independente:**
+```bash
+cd api-gateway
+mvn clean package -DskipTests
+```
+
 ---
 
-## 2. Como os Módulos se Comunicam
+## 2. Como os Serviços se Comunicam
 
 ```
-EXTERNO                INTERNO (auth-network)
-─────────              ─────────────────────────────────────────
+EXTERNO                INTERNO (auth-network Docker)
+─────────              ──────────────────────────────────────────
 Aplicação Cliente
   │
   │ HTTP :8080
   ▼
-┌──────────────┐
-│  API Gateway │──── Eureka (descobre endereços)
-│   :8080      │──── LocalStack/AWS (Parameter Store: configs)
-└──────┬───────┘
-       │ JWT validado → injeta headers
-       │
-  ┌────┴──────────────────────────┐
-  │                               │
-  ▼                               ▼
-┌────────────┐            ┌───────────────────┐
-│auth-service│            │authorization-svc  │
-│  :8081     │            │    :8082          │
-│            │            │                   │
-│ ←LDAP→    │            │ ←→ PostgreSQL     │
-│ ←Redis→   │            │                   │
-│ ←AWS SM→  │            │                   │
-└────────────┘            └───────────────────┘
-       │                               │
-       └───────────────┬───────────────┘
-                       ▼
-               ┌──────────────┐
-               │ eureka-server│
-               │    :8761     │
-               └──────────────┘
+┌──────────────────────────────────────────┐
+│  API Gateway (:8080)                     │
+│                                          │
+│  → JWT validado localmente (RSA pub key) │
+│  → Injeta X-Username, X-User-Roles, etc  │
+│  → Roteia por hostname Docker            │
+│  → LocalStack/AWS (Parameter Store)      │
+└──────┬──────────────────────┬────────────┘
+       │                      │
+       │ http://auth-service:8081
+       │                      │ http://authorization-service:8082
+       ▼                      ▼
+┌────────────┐        ┌───────────────────┐
+│auth-service│        │authorization-svc  │
+│  :8081     │        │    :8082          │
+│            │        │                   │
+│ ←LDAP→    │        │ ←→ PostgreSQL     │
+│ ←Redis→   │        │ ←→ AWS SM (chave) │
+│ ←AWS SM→  │        │                   │
+└────────────┘        └───────────────────┘
 ```
 
-**Regra de ouro:** Aplicações clientes *só* falam com o Gateway na porta 8080. As portas 8081 e 8082 são internas.
+**Regra de ouro:** Aplicações clientes *só* falam com o Gateway na porta 8080. As portas 8081 e 8082 são internas à rede Docker e não devem ser expostas em produção.
+
+**Ausência de service discovery:** Os serviços se comunicam diretamente por nome de container Docker (resolvido pelo DNS interno da `auth-network`). Não há necessidade de um registro de serviços centralizado — a infraestrutura Docker resolve os endereços de forma nativa.
 
 ---
 
@@ -220,18 +222,18 @@ Aplicação Cliente
 
 ```bash
 # 1. Subir o ambiente
-docker-compose up -d
+docker compose up -d
 
 # 2. Aguardar inicialização (~60-90 segundos)
-docker-compose ps
+docker compose ps
 
 # 3. Verificar que todos os serviços estão "healthy"
 # Todos devem mostrar "(healthy)" ou "running"
 
 # 4. Verificar logs de inicialização
-docker-compose logs auth-service | grep "Started AuthServiceApplication"
-docker-compose logs authorization-service | grep "Started AuthorizationServiceApplication"
-docker-compose logs api-gateway | grep "Started ApiGatewayApplication"
+docker compose logs auth-service | grep "Started AuthServiceApplication"
+docker compose logs authorization-service | grep "Started AuthorizationServiceApplication"
+docker compose logs api-gateway | grep "Started ApiGatewayApplication"
 ```
 
 ### 3.2 Checklist de Homologação — Autenticação
@@ -242,7 +244,6 @@ Execute na ordem. Use a collection Insomnia ou curl.
 □ HC-01: Gateway responde /actuator/health com status UP
 □ HC-02: Auth Service responde /actuator/health com status UP
 □ HC-03: Authorization Service responde /actuator/health com status UP
-□ HC-04: Eureka Dashboard mostra 3 serviços registrados (auth-service, authorization-service, api-gateway)
 
 □ AUTH-01: Login com credenciais válidas (john.doe) retorna 200 com access_token e refresh_token
 □ AUTH-02: Login com senha errada retorna 401 com mensagem "Authentication Failed"
@@ -262,7 +263,7 @@ Execute na ordem. Use a collection Insomnia ou curl.
 □ AUTHZ-01: Registrar aplicação retorna 201 com clientId único
 □ AUTHZ-02: Criar role XPTO_USER para a aplicação retorna 201
 □ AUTHZ-03: Criar role XPTO_RH para a aplicação retorna 201
-□ AUTHZ-04: Atribuir XPTO_USER a john.doe retorna 200
+□ AUTHZ-04: Atribuir XPTO_USER a john.doe retorna 201
 □ AUTHZ-05: Verificar beneficios:read para john.doe retorna {allowed: true}
 □ AUTHZ-06: Verificar folha:read para john.doe retorna {allowed: false}
 □ AUTHZ-07: Listar permissões de john.doe mostra [beneficios:read, perfil:read]
@@ -274,11 +275,14 @@ Execute na ordem. Use a collection Insomnia ou curl.
 
 ```
 □ SEC-01: Request sem Authorization header para endpoint protegido → 401
-□ SEC-02: Request com token de outra aplicação (applicationId diferente) é aceito pelo Gateway mas o check de permissão retorna allowed:false
+□ SEC-02: Request com token de outra aplicação (applicationId diferente) é aceito pelo Gateway
+          mas o check de permissão retorna allowed:false
 □ SEC-03: Manipular o payload do JWT (sem re-assinar) → Gateway rejeita (401)
-□ SEC-04: Usar refresh token como access token → validate retorna {active: false} (type=REFRESH, não ACCESS)
-□ SEC-05: Token após logout/revogação → Gateway deixa passar (JWT é válido), mas validate retorna {active: false}
-         IMPORTANTE: O Gateway valida apenas assinatura e expiração. Para blacklist, o serviço backend deve chamar /validate.
+□ SEC-04: Usar refresh token como access token → validate retorna {active: false} (type=REFRESH)
+□ SEC-05: Token após logout/revogação → Gateway deixa passar (JWT é válido estruturalmente),
+          mas validate retorna {active: false}
+          IMPORTANTE: O Gateway valida apenas assinatura e expiração. Para blacklist,
+          o serviço backend deve chamar /validate.
 ```
 
 > **Nota sobre SEC-05:** O Gateway não chama o Redis para verificar blacklist a cada requisição — isso seria um gargalo. A validação de revogação deve ser feita pelos serviços que precisam dessa garantia via `/api/v1/auth/validate`. Esta é uma troca consciente: latência zero no Gateway versus verificação de revogação onde necessário.
@@ -328,16 +332,16 @@ EOF
 
 ```bash
 # Monitorar logs em tempo real
-docker-compose logs -f auth-service
+docker compose logs -f auth-service
 
 # Filtrar apenas erros
-docker-compose logs auth-service | grep -E "ERROR|WARN"
+docker compose logs auth-service | grep -E "ERROR|WARN"
 
 # Verificar se o correlationId aparece nos logs
-docker-compose logs auth-service | grep "correlationId"
+docker compose logs auth-service | grep "correlationId"
 
 # Verificar se LDAP está sendo consultado
-docker-compose logs auth-service | grep "LDAP"
+docker compose logs auth-service | grep "LDAP"
 ```
 
 ---
@@ -386,27 +390,28 @@ curl -X POST http://localhost:8080/api/v1/applications \
 # Role para usuário comum
 curl -X POST http://localhost:8080/api/v1/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{
     "name": "XPTO_USER",
     "description": "Acesso básico ao portal",
-    "applicationId": "app-uuid-001",
-    "permissionIds": []
+    "applicationId": "app-uuid-001"
   }'
 
 # Role para equipe de RH
 curl -X POST http://localhost:8080/api/v1/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{ "name": "XPTO_RH", "applicationId": "app-uuid-001", ... }'
+  -H "Content-Type: application/json" \
+  -d '{ "name": "XPTO_RH", "description": "Acesso RH", "applicationId": "app-uuid-001" }'
 ```
 
 **Passo 3 — Atribuir roles aos usuários:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/roles/role-uuid-xpto-user/assignments \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{
     "username": "john.doe",
-    "applicationId": "app-uuid-001",
-    "assignedBy": "admin.user"
+    "applicationId": "app-uuid-001"
   }'
 ```
 
@@ -510,7 +515,6 @@ public class FolhaController {
             @RequestHeader("X-Username") String username,
             @RequestHeader("X-User-Roles") String roles) {
 
-        // Roles chegam como "ROLE_ENGINEERS,ROLE_PLATFORM_TEAM"
         List<String> userRoles = Arrays.asList(roles.split(","));
 
         if (!userRoles.contains("ROLE_XPTO_RH") && !userRoles.contains("ROLE_ADMINISTRATORS")) {
@@ -518,7 +522,6 @@ public class FolhaController {
                 .body(Map.of("error", "Acesso negado: role XPTO_RH necessária"));
         }
 
-        // Continua com a lógica de negócio
         return ResponseEntity.ok(folhaService.getFolha(username));
     }
 }
@@ -527,7 +530,6 @@ public class FolhaController {
 **Alternativa: usar o authorization-service para verificação granular:**
 
 ```java
-// Verifica no authorization-service se o usuário pode ler folha
 @GetMapping
 public ResponseEntity<?> getFolha(@RequestHeader("X-Username") String username) {
     
@@ -547,12 +549,9 @@ public ResponseEntity<?> getFolha(@RequestHeader("X-Username") String username) 
 
 ### 4.4 Renovação Automática de Token
 
-O Portal deve renovar o token antes de expirar, de forma transparente para o usuário:
-
 ```javascript
 // portal-xpto/token-refresh.interceptor.js
 async function requestWithAutoRefresh(url, options) {
-  // Verifica se o token expira em menos de 60 segundos
   if (tokenStore.expiresAt - Date.now() < 60_000) {
     await refreshToken();
   }
@@ -577,7 +576,6 @@ async function refreshToken() {
   });
 
   if (!response.ok) {
-    // Refresh inválido/expirado → força novo login
     redirectToLogin();
     return;
   }
@@ -602,7 +600,6 @@ async function buildMenu(accessToken) {
   );
 
   const { permissions } = await response.json();
-  // permissions = ["beneficios:read", "perfil:read"]
 
   return [
     {
@@ -698,7 +695,7 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `Health Checks` | 5 requests de verificação de saúde |
+| `Health Checks` | 3 requests de verificação de saúde (Gateway, Auth, Authorization) |
 | `Autenticacao` | Login, Refresh, Validate, Logout (+ casos negativos) |
 | `Autorizacao (RBAC)` | Check permission, listar permissões |
 | `Gestao de Aplicacoes` | Registrar, atualizar, desativar aplicações |
