@@ -1,0 +1,250 @@
+version: '3.9'
+
+# Auth Platform - Corporate Authentication & Authorization
+# Local development environment with all dependencies
+
+networks:
+  auth-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  openldap-data:
+  localstack-data:
+
+services:
+
+  # ─────────────────────────────────────────────
+  # INFRASTRUCTURE SERVICES
+  # ─────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: auth-postgres
+    environment:
+      POSTGRES_DB: authplatform
+      POSTGRES_USER: authplatform
+      POSTGRES_PASSWORD: authplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authplatform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: auth-redis
+    command: redis-server --appendonly yes --requirepass ""
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: auth-openldap
+    environment:
+      LDAP_ORGANISATION: "Auth Platform"
+      LDAP_DOMAIN: "authplatform.com"
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_TLS: "false"
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: "readonly"
+      LDAP_READONLY_USER_PASSWORD: "readonly"
+    ports:
+      - "389:389"
+    volumes:
+      - openldap-data:/var/lib/ldap
+      - ./scripts/ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/bootstrap.ldif
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=authplatform,dc=com", "-D", "cn=admin,dc=authplatform,dc=com", "-w", "admin"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    container_name: auth-ldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "8090:80"
+    depends_on:
+      openldap:
+        condition: service_healthy
+    networks:
+      - auth-network
+
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: auth-localstack
+    environment:
+      SERVICES: ssm,secretsmanager
+      AWS_DEFAULT_REGION: us-east-1
+      DOCKER_HOST: unix:///var/run/docker.sock
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./scripts/aws/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # APPLICATION SERVICES
+  # ─────────────────────────────────────────────
+
+  eureka-server:
+    build:
+      context: .
+      dockerfile: eureka-server/Dockerfile
+    container_name: auth-eureka
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      EUREKA_USER: eureka
+      EUREKA_PASSWORD: eureka-secret
+      SERVER_PORT: 8761
+    ports:
+      - "8761:8761"
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "eureka:eureka-secret", "http://localhost:8761/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    container_name: auth-service
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: 8081
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LDAP_URL: ldap://openldap:389
+      LDAP_BASE_DN: dc=authplatform,dc=com
+      LDAP_USER_DN: cn=admin,dc=authplatform,dc=com
+      LDAP_PASSWORD: admin
+      LDAP_USER_SEARCH_BASE: ou=users
+      LDAP_USER_SEARCH_FILTER: (uid={0})
+      LDAP_GROUP_SEARCH_BASE: ou=groups
+      LDAP_GROUP_SEARCH_FILTER: (memberUid={0})
+      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_OVERRIDE: http://localstack:4566
+      JWT_ISSUER: auth-platform
+      JWT_ACCESS_EXPIRATION: 900
+      JWT_REFRESH_EXPIRATION: 86400
+      # RSA keys are loaded from LocalStack Secrets Manager by AwsSecretsLoader
+      AWS_JWT_SECRET_NAME: auth-platform/auth-service/jwt-keys
+      AWS_LDAP_SECRET_NAME: auth-platform/auth-service/ldap-credentials
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  authorization-service:
+    build:
+      context: .
+      dockerfile: authorization-service/Dockerfile
+    container_name: auth-authorization
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://postgres:5432/authplatform
+      DB_USERNAME: authplatform
+      DB_PASSWORD: authplatform
+      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_OVERRIDE: http://localstack:4566
+      JWT_ISSUER: auth-platform
+      AWS_JWT_PUBLIC_KEY_SECRET: auth-platform/shared/jwt-public-key
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: auth-gateway
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: 8080
+      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_OVERRIDE: http://localstack:4566
+      JWT_ISSUER: auth-platform
+      AWS_JWT_PUBLIC_KEY_SECRET: auth-platform/shared/jwt-public-key
+    ports:
+      - "8080:8080"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s

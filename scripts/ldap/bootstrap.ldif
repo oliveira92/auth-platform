@@ -1,0 +1,90 @@
+# Bootstrap LDAP data for local development
+# Auth Platform - OpenLDAP test users and groups
+
+# ── Organizational Units ──────────────────────────────────────────────
+
+dn: ou=users,dc=authplatform,dc=com
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=authplatform,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+dn: ou=service-accounts,dc=authplatform,dc=com
+objectClass: organizationalUnit
+ou: service-accounts
+
+# ── Test Users ────────────────────────────────────────────────────────
+
+dn: uid=john.doe,ou=users,dc=authplatform,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: john.doe
+cn: John Doe
+sn: Doe
+givenName: John
+mail: john.doe@authplatform.com
+displayName: John Doe
+department: Engineering
+title: Senior Engineer
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/john.doe
+userPassword: {SSHA}password123
+
+dn: uid=jane.smith,ou=users,dc=authplatform,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: jane.smith
+cn: Jane Smith
+sn: Smith
+givenName: Jane
+mail: jane.smith@authplatform.com
+displayName: Jane Smith
+department: Platform
+title: Platform Engineer
+uidNumber: 1002
+gidNumber: 1001
+homeDirectory: /home/jane.smith
+userPassword: {SSHA}password123
+
+dn: uid=admin.user,ou=users,dc=authplatform,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: admin.user
+cn: Admin User
+sn: User
+givenName: Admin
+mail: admin@authplatform.com
+displayName: Admin User
+department: IT
+title: System Administrator
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/admin.user
+userPassword: {SSHA}admin123
+
+# ── Groups ─────────────────────────────────────────────────────────────
+
+dn: cn=engineers,ou=groups,dc=authplatform,dc=com
+objectClass: posixGroup
+cn: engineers
+gidNumber: 1001
+memberUid: john.doe
+memberUid: jane.smith
+
+dn: cn=platform-team,ou=groups,dc=authplatform,dc=com
+objectClass: posixGroup
+cn: platform-team
+gidNumber: 1002
+memberUid: jane.smith
+
+dn: cn=administrators,ou=groups,dc=authplatform,dc=com
+objectClass: posixGroup
+cn: administrators
+gidNumber: 1000
+memberUid: admin.user

@@ -1,0 +1,97 @@
+spring:
+  application:
+    name: auth-service
+  config:
+    import: "optional:aws-parameterstore:/config/auth-platform/auth-service/"
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
+
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+# Virtual Threads (Java 21+)
+spring.threads.virtual.enabled: true
+
+# LDAP Configuration (overridden by AWS Parameter Store in non-local envs)
+auth:
+  ldap:
+    url: ${LDAP_URL:ldap://openldap:389}
+    base-dn: ${LDAP_BASE_DN:dc=authplatform,dc=com}
+    user-dn: ${LDAP_USER_DN:cn=admin,dc=authplatform,dc=com}
+    password: ${LDAP_PASSWORD:admin}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users}
+    user-search-filter: ${LDAP_USER_SEARCH_FILTER:(uid={0})}
+    group-search-base: ${LDAP_GROUP_SEARCH_BASE:ou=groups}
+    group-search-filter: ${LDAP_GROUP_SEARCH_FILTER:(member={0})}
+
+  jwt:
+    issuer: ${JWT_ISSUER:auth-platform}
+    access-token-expiration-seconds: ${JWT_ACCESS_EXPIRATION:900}
+    refresh-token-expiration-seconds: ${JWT_REFRESH_EXPIRATION:86400}
+    # RSA keys loaded from AWS Secrets Manager in non-local envs
+    # For local, use the keys configured in application-local.yml
+    private-key: ${JWT_PRIVATE_KEY:}
+    public-key: ${JWT_PUBLIC_KEY:}
+
+  aws:
+    secrets:
+      jwt-secret-name: ${AWS_JWT_SECRET_NAME:auth-platform/auth-service/jwt-keys}
+      ldap-secret-name: ${AWS_LDAP_SECRET_NAME:auth-platform/auth-service/ldap-credentials}
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  endpoint-override: ${AWS_ENDPOINT_OVERRIDE:}
+
+# Eureka
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://eureka:eureka-secret@localhost:8761/eureka/}
+    healthcheck:
+      enabled: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${spring.application.instance-id:${random.value}}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
+  level:
+    com.authplatform: DEBUG
+    org.springframework.ldap: INFO
+    org.springframework.security: WARN
