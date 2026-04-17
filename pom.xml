@@ -12,7 +12,6 @@
     <description>Golden Path for Corporate Authentication and Authorization using LDAP/AD</description>
 
     <modules>
-        <module>eureka-server</module>
         <module>auth-service</module>
         <module>authorization-service</module>
         <module>api-gateway</module>
@@ -187,8 +186,7 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.13.0</version>
                     <configuration>
-                        <source>${java.version}</source>
-                        <target>${java.version}</target>
+                        <release>${java.version}</release>
                         <encoding>UTF-8</encoding>
                         <annotationProcessorPaths>
                             <path>

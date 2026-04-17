@@ -116,27 +116,6 @@ services:
   # APPLICATION SERVICES
   # ─────────────────────────────────────────────
 
-  eureka-server:
-    build:
-      context: .
-      dockerfile: eureka-server/Dockerfile
-    container_name: auth-eureka
-    environment:
-      SPRING_PROFILES_ACTIVE: local
-      EUREKA_USER: eureka
-      EUREKA_PASSWORD: eureka-secret
-      SERVER_PORT: 8761
-    ports:
-      - "8761:8761"
-    networks:
-      - auth-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "-u", "eureka:eureka-secret", "http://localhost:8761/actuator/health"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
-
   auth-service:
     build:
       context: .
@@ -155,13 +134,11 @@ services:
       LDAP_USER_SEARCH_FILTER: (uid={0})
       LDAP_GROUP_SEARCH_BASE: ou=groups
       LDAP_GROUP_SEARCH_FILTER: (memberUid={0})
-      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
       AWS_REGION: us-east-1
       AWS_ENDPOINT_OVERRIDE: http://localstack:4566
       JWT_ISSUER: auth-platform
       JWT_ACCESS_EXPIRATION: 900
       JWT_REFRESH_EXPIRATION: 86400
-      # RSA keys are loaded from LocalStack Secrets Manager by AwsSecretsLoader
       AWS_JWT_SECRET_NAME: auth-platform/auth-service/jwt-keys
       AWS_LDAP_SECRET_NAME: auth-platform/auth-service/ldap-credentials
     ports:
@@ -172,8 +149,6 @@ services:
       openldap:
         condition: service_healthy
       localstack:
-        condition: service_healthy
-      eureka-server:
         condition: service_healthy
     networks:
       - auth-network
@@ -195,7 +170,6 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/authplatform
       DB_USERNAME: authplatform
       DB_PASSWORD: authplatform
-      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
       AWS_REGION: us-east-1
       AWS_ENDPOINT_OVERRIDE: http://localstack:4566
       JWT_ISSUER: auth-platform
@@ -206,8 +180,6 @@ services:
       postgres:
         condition: service_healthy
       localstack:
-        condition: service_healthy
-      eureka-server:
         condition: service_healthy
     networks:
       - auth-network
@@ -226,7 +198,10 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: local
       SERVER_PORT: 8080
-      EUREKA_URL: http://eureka:eureka-secret@eureka-server:8761/eureka/
+      AUTH_SERVICE_HOST: auth-service
+      AUTH_SERVICE_PORT: 8081
+      AUTHZ_SERVICE_HOST: authorization-service
+      AUTHZ_SERVICE_PORT: 8082
       AWS_REGION: us-east-1
       AWS_ENDPOINT_OVERRIDE: http://localstack:4566
       JWT_ISSUER: auth-platform
@@ -234,9 +209,9 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      eureka-server:
-        condition: service_healthy
       auth-service:
+        condition: service_healthy
+      authorization-service:
         condition: service_healthy
       localstack:
         condition: service_healthy

@@ -54,19 +54,6 @@ aws:
   region: ${AWS_REGION:us-east-1}
   endpoint-override: ${AWS_ENDPOINT_OVERRIDE:}
 
-# Eureka
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_URL:http://eureka:eureka-secret@localhost:8761/eureka/}
-    healthcheck:
-      enabled: true
-  instance:
-    prefer-ip-address: true
-    instance-id: ${spring.application.name}:${spring.application.instance-id:${random.value}}
-    lease-renewal-interval-in-seconds: 10
-    lease-expiration-duration-in-seconds: 30
-
 # Actuator
 management:
   endpoints:
