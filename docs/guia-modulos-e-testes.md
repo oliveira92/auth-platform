@@ -14,7 +14,9 @@
 
 ## 1. Função de Cada Microsserviço
 
-A plataforma é composta por **3 microsserviços independentes**. Cada um possui seu próprio `pom.xml`, ciclo de build, Dockerfile e pode ser desenvolvido, testado e implantado de forma autônoma.
+A plataforma é composta por **2 microsserviços independentes**. Cada um possui seu próprio `pom.xml`, ciclo de build, Dockerfile e pode ser desenvolvido, testado e implantado de forma autônoma.
+
+> **Nota sobre API Gateway:** A decisão sobre um API Gateway (AWS API Gateway, Kong, etc.) está reservada para uma fase futura da implantação. Cada serviço expõe seus endpoints diretamente e valida o JWT Bearer token de forma independente.
 
 ---
 
@@ -131,54 +133,6 @@ mvn clean package -DskipTests
 
 ---
 
-### 1.3 `api-gateway` — O Portão de Entrada
-
-**O que faz:** É o **único ponto de contato** das aplicações externas com a plataforma. Nenhum serviço downstream deve ser chamado diretamente pelas aplicações clientes.
-
-Suas três funções:
-
-**1. Validação de JWT (sem round-trip)**
-```
-Requisição chega com "Authorization: Bearer eyJ..."
-   ↓
-JwtAuthenticationFilter
-   ↓ verifica assinatura RSA com a chave pública (em memória)
-   ↓ verifica expiração
-   ↓ se inválido → 401 Unauthorized (sem chamar nenhum serviço)
-   ↓ se válido → extrai claims (username, roles, groups)
-```
-
-**2. Propagação de Identidade**
-Após validar o token, o Gateway **injeta headers** na requisição antes de encaminhar:
-```
-X-Username: john.doe
-X-User-Roles: ROLE_ENGINEERS,ROLE_PLATFORM_TEAM
-X-User-Groups: engineers,platform-team
-X-Application-Id: portal-xpto
-X-Correlation-ID: uuid-rastreabilidade
-```
-Os serviços downstream recebem esses headers e *não precisam* saber de JWT.
-
-**3. Roteamento por URL direta**
-```
-/api/v1/auth/**              → http://auth-service:8081
-/api/v1/authorization/**     → http://authorization-service:8082
-/api/v1/applications/**      → http://authorization-service:8082
-/api/v1/roles/**             → http://authorization-service:8082
-```
-
-Os endereços dos serviços são configurados via variáveis de ambiente (`AUTH_SERVICE_HOST`, `AUTHZ_SERVICE_HOST`), com padrão baseado nos nomes dos containers Docker.
-
-**Porta:** 8080 (único ponto de entrada)
-
-**Build independente:**
-```bash
-cd api-gateway
-mvn clean package -DskipTests
-```
-
----
-
 ## 2. Como os Serviços se Comunicam
 
 ```
@@ -186,33 +140,33 @@ EXTERNO                INTERNO (auth-network Docker)
 ─────────              ──────────────────────────────────────────
 Aplicação Cliente
   │
-  │ HTTP :8080
-  ▼
-┌──────────────────────────────────────────┐
-│  API Gateway (:8080)                     │
-│                                          │
-│  → JWT validado localmente (RSA pub key) │
-│  → Injeta X-Username, X-User-Roles, etc  │
-│  → Roteia por hostname Docker            │
-│  → LocalStack/AWS (Parameter Store)      │
-└──────┬──────────────────────┬────────────┘
-       │                      │
-       │ http://auth-service:8081
-       │                      │ http://authorization-service:8082
-       ▼                      ▼
-┌────────────┐        ┌───────────────────┐
-│auth-service│        │authorization-svc  │
-│  :8081     │        │    :8082          │
-│            │        │                   │
-│ ←LDAP→    │        │ ←→ PostgreSQL     │
-│ ←Redis→   │        │ ←→ AWS SM (chave) │
-│ ←AWS SM→  │        │                   │
-└────────────┘        └───────────────────┘
+  ├── HTTP :8081 (autenticação)
+  │   ▼
+  │  ┌────────────────────────────────┐
+  │  │  auth-service (:8081)          │
+  │  │                                │
+  │  │  → JWT validado na requisição  │
+  │  │  → Emite/valida tokens RS256   │
+  │  │  ←→ LDAP/AD                   │
+  │  │  ←→ Redis (blacklist)         │
+  │  │  ←→ AWS Secrets Manager       │
+  │  └────────────────────────────────┘
+  │
+  └── HTTP :8082 (autorização RBAC)
+      ▼
+     ┌────────────────────────────────┐
+     │  authorization-service (:8082) │
+     │                                │
+     │  → JWT validado na requisição  │
+     │  → Verifica permissões RBAC    │
+     │  ←→ PostgreSQL (roles/perms)  │
+     │  ←→ AWS Secrets Manager       │
+     └────────────────────────────────┘
 ```
 
-**Regra de ouro:** Aplicações clientes *só* falam com o Gateway na porta 8080. As portas 8081 e 8082 são internas à rede Docker e não devem ser expostas em produção.
+**Validação de JWT por serviço:** Cada serviço valida o token `Authorization: Bearer` diretamente usando a chave pública RSA. O `auth-service` usa a chave privada para emitir tokens; o `authorization-service` usa apenas a chave pública para validação.
 
-**Ausência de service discovery:** Os serviços se comunicam diretamente por nome de container Docker (resolvido pelo DNS interno da `auth-network`). Não há necessidade de um registro de serviços centralizado — a infraestrutura Docker resolve os endereços de forma nativa.
+**Ausência de service discovery:** Os serviços são acessados diretamente por porta. Não há necessidade de um registro de serviços centralizado. Em produção, um API Gateway (AWS API Gateway, Kong, etc.) pode ser introduzido na frente destes serviços.
 
 ---
 
@@ -233,7 +187,6 @@ docker compose ps
 # 4. Verificar logs de inicialização
 docker compose logs auth-service | grep "Started AuthServiceApplication"
 docker compose logs authorization-service | grep "Started AuthorizationServiceApplication"
-docker compose logs api-gateway | grep "Started ApiGatewayApplication"
 ```
 
 ### 3.2 Checklist de Homologação — Autenticação
@@ -241,9 +194,8 @@ docker compose logs api-gateway | grep "Started ApiGatewayApplication"
 Execute na ordem. Use a collection Insomnia ou curl.
 
 ```
-□ HC-01: Gateway responde /actuator/health com status UP
-□ HC-02: Auth Service responde /actuator/health com status UP
-□ HC-03: Authorization Service responde /actuator/health com status UP
+□ HC-01: Auth Service responde /actuator/health com status UP  (http://localhost:8081/actuator/health)
+□ HC-02: Authorization Service responde /actuator/health com status UP  (http://localhost:8082/actuator/health)
 
 □ AUTH-01: Login com credenciais válidas (john.doe) retorna 200 com access_token e refresh_token
 □ AUTH-02: Login com senha errada retorna 401 com mensagem "Authentication Failed"
@@ -275,17 +227,17 @@ Execute na ordem. Use a collection Insomnia ou curl.
 
 ```
 □ SEC-01: Request sem Authorization header para endpoint protegido → 401
-□ SEC-02: Request com token de outra aplicação (applicationId diferente) é aceito pelo Gateway
+□ SEC-02: Request com token de outra aplicação (applicationId diferente) é aceito pela validação JWT
           mas o check de permissão retorna allowed:false
-□ SEC-03: Manipular o payload do JWT (sem re-assinar) → Gateway rejeita (401)
+□ SEC-03: Manipular o payload do JWT (sem re-assinar) → serviço rejeita com 401
 □ SEC-04: Usar refresh token como access token → validate retorna {active: false} (type=REFRESH)
-□ SEC-05: Token após logout/revogação → Gateway deixa passar (JWT é válido estruturalmente),
+□ SEC-05: Token após logout/revogação → JWT ainda válido estruturalmente,
           mas validate retorna {active: false}
-          IMPORTANTE: O Gateway valida apenas assinatura e expiração. Para blacklist,
-          o serviço backend deve chamar /validate.
+          IMPORTANTE: Cada serviço valida apenas assinatura e expiração. Para blacklist,
+          o serviço deve chamar /validate.
 ```
 
-> **Nota sobre SEC-05:** O Gateway não chama o Redis para verificar blacklist a cada requisição — isso seria um gargalo. A validação de revogação deve ser feita pelos serviços que precisam dessa garantia via `/api/v1/auth/validate`. Esta é uma troca consciente: latência zero no Gateway versus verificação de revogação onde necessário.
+> **Nota sobre SEC-05:** A validação de revogação via Redis blacklist deve ser feita chamando `/api/v1/auth/validate` quando a garantia de revogação imediata é necessária. Esta é uma troca consciente: validação local de JWT (latência zero, sem round-trip) versus verificação de revogação pontual onde necessário.
 
 ### 3.5 Teste de Carga (Pré-Produção)
 
@@ -312,7 +264,7 @@ export default function () {
   });
 
   const params = { headers: { 'Content-Type': 'application/json' } };
-  const res = http.post('http://localhost:8080/api/v1/auth/login', payload, params);
+  const res = http.post('http://localhost:8081/api/v1/auth/login', payload, params);
 
   check(res, {
     'status is 200': (r) => r.status === 200,
@@ -371,7 +323,7 @@ O time responsável pelo Portal XPTO faz o onboarding por conta própria, sem pr
 
 **Passo 1 — Registrar a aplicação:**
 ```bash
-curl -X POST http://localhost:8080/api/v1/applications \
+curl -X POST http://localhost:8082/api/v1/applications \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{
@@ -388,7 +340,7 @@ curl -X POST http://localhost:8080/api/v1/applications \
 **Passo 2 — Criar as roles da aplicação:**
 ```bash
 # Role para usuário comum
-curl -X POST http://localhost:8080/api/v1/roles \
+curl -X POST http://localhost:8082/api/v1/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -398,7 +350,7 @@ curl -X POST http://localhost:8080/api/v1/roles \
   }'
 
 # Role para equipe de RH
-curl -X POST http://localhost:8080/api/v1/roles \
+curl -X POST http://localhost:8082/api/v1/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{ "name": "XPTO_RH", "description": "Acesso RH", "applicationId": "app-uuid-001" }'
@@ -406,7 +358,7 @@ curl -X POST http://localhost:8080/api/v1/roles \
 
 **Passo 3 — Atribuir roles aos usuários:**
 ```bash
-curl -X POST http://localhost:8080/api/v1/roles/role-uuid-xpto-user/assignments \
+curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/assignments \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -448,7 +400,7 @@ NAVEGADOR                PORTAL XPTO (Backend)          AUTH PLATFORM
 ```javascript
 // portal-xpto/auth.service.js
 async function login(username, password) {
-  const response = await fetch('https://auth-platform.empresa.com/api/v1/auth/login', {
+  const response = await fetch('https://auth-service.empresa.com/api/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -487,17 +439,18 @@ NAVEGADOR               PORTAL XPTO API         AUTH PLATFORM
     │  <access_token>         │                        │
     ├───────────────────────►│                        │
     │                        │                        │
-    │                        │ → API Gateway valida JWT (local, sem chamada HTTP)
-    │                        │ → Gateway injeta headers:
-    │                        │   X-Username: john.doe
-    │                        │   X-User-Roles: ROLE_ENGINEERS
+    │                        │ Backend verifica permissão:
+    │                        │ GET :8082/api/v1/authorization/check
+    │                        │ Authorization: Bearer <access_token>
+    │                        │ ?applicationId=portal-xpto
+    │                        │ &resource=folha&action=read
+    │                        ├───────────────────────►│
+    │                        │                        │ → valida JWT RS256
+    │                        │                        │ → consulta PostgreSQL
+    │                        │  {allowed: false}       │
+    │                        │◄───────────────────────┤
     │                        │                        │
-    │                        │ (Gateway encaminha para o backend do Portal)
-    │                        │                        │
-    │                        │ Backend verifica:      │
-    │                        │ X-User-Roles contém    │
-    │                        │ XPTO_RH?               │
-    │                        │ → NÃO → 403 Forbidden  │
+    │                        │ → 403 Forbidden        │
     │  403 Forbidden          │                        │
     │◄───────────────────────┤                        │
 ```
@@ -510,16 +463,19 @@ NAVEGADOR               PORTAL XPTO API         AUTH PLATFORM
 @RequestMapping("/api/folha")
 public class FolhaController {
 
+    private final AuthorizationClient authorizationClient;
+
     @GetMapping
-    public ResponseEntity<?> getFolha(
-            @RequestHeader("X-Username") String username,
-            @RequestHeader("X-User-Roles") String roles) {
+    public ResponseEntity<?> getFolha(Authentication authentication) {
+        String username = authentication.getName();
 
-        List<String> userRoles = Arrays.asList(roles.split(","));
+        boolean podeAcessar = authorizationClient.checkPermission(
+            username, "portal-xpto", "folha", "read"
+        );
 
-        if (!userRoles.contains("ROLE_XPTO_RH") && !userRoles.contains("ROLE_ADMINISTRATORS")) {
+        if (!podeAcessar) {
             return ResponseEntity.status(403)
-                .body(Map.of("error", "Acesso negado: role XPTO_RH necessária"));
+                .body(Map.of("error", "Acesso negado: permissão folha:read necessária"));
         }
 
         return ResponseEntity.ok(folhaService.getFolha(username));
@@ -527,23 +483,7 @@ public class FolhaController {
 }
 ```
 
-**Alternativa: usar o authorization-service para verificação granular:**
-
-```java
-@GetMapping
-public ResponseEntity<?> getFolha(@RequestHeader("X-Username") String username) {
-    
-    boolean podeAcessar = authorizationClient.checkPermission(
-        username, "portal-xpto", "folha", "read"
-    );
-
-    if (!podeAcessar) {
-        return ResponseEntity.status(403).build();
-    }
-
-    return ResponseEntity.ok(folhaService.getFolha(username));
-}
-```
+O `AuthorizationClient` chama `GET http://authorization-service:8082/api/v1/authorization/check` passando o Bearer token recebido da requisição original.
 
 ---
 
@@ -707,9 +647,8 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
-| `base_url` | URL do API Gateway | `http://localhost:8080` |
-| `auth_url` | URL direta do Auth Service | `http://localhost:8081` |
-| `authz_url` | URL direta do Authorization Service | `http://localhost:8082` |
+| `auth_url` | URL do Auth Service | `http://localhost:8081` |
+| `authz_url` | URL do Authorization Service | `http://localhost:8082` |
 | `access_token` | JWT access token (atualizar após login) | `eyJ...` |
 | `refresh_token` | JWT refresh token (atualizar após login/refresh) | `eyJ...` |
 | `username` | Usuário LDAP para testes | `john.doe` |

@@ -5,8 +5,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,11 +25,12 @@ public class AuthorizationController {
     @GetMapping("/check")
     @Operation(summary = "Check if a user has a specific permission on a resource")
     public ResponseEntity<Map<String, Object>> checkPermission(
-            @RequestHeader("X-Username") String username,
+            Authentication authentication,
             @RequestParam String applicationId,
             @RequestParam String resource,
             @RequestParam String action) {
 
+        String username = authentication.getName();
         boolean allowed = checkPermissionUseCase.hasPermission(username, applicationId, resource, action);
 
         return ResponseEntity.ok(Map.of(
@@ -44,9 +45,10 @@ public class AuthorizationController {
     @GetMapping("/permissions")
     @Operation(summary = "Get all permissions for a user in an application")
     public ResponseEntity<Map<String, Object>> getUserPermissions(
-            @RequestHeader("X-Username") String username,
+            Authentication authentication,
             @RequestParam String applicationId) {
 
+        String username = authentication.getName();
         List<String> permissions = checkPermissionUseCase.getUserPermissions(username, applicationId);
         List<String> roles = checkPermissionUseCase.getUserRoles(username, applicationId);
 

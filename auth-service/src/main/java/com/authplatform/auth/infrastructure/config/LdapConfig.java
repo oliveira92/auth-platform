@@ -6,6 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.LdapContextSource;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Configuration
 @RequiredArgsConstructor
 public class LdapConfig {
@@ -20,14 +23,10 @@ public class LdapConfig {
         contextSource.setUserDn(ldapProperties.getUserDn());
         contextSource.setPassword(ldapProperties.getPassword());
         contextSource.setReferral(ldapProperties.isReferral() ? "follow" : "ignore");
-        contextSource.getBaseEnvironmentProperties().put(
-            "com.sun.jndi.ldap.connect.timeout",
-            String.valueOf(ldapProperties.getConnectTimeout())
-        );
-        contextSource.getBaseEnvironmentProperties().put(
-            "com.sun.jndi.ldap.read.timeout",
-            String.valueOf(ldapProperties.getReadTimeout())
-        );
+        Map<String, Object> baseEnv = new HashMap<>();
+        baseEnv.put("com.sun.jndi.ldap.connect.timeout", String.valueOf(ldapProperties.getConnectTimeout()));
+        baseEnv.put("com.sun.jndi.ldap.read.timeout", String.valueOf(ldapProperties.getReadTimeout()));
+        contextSource.setBaseEnvironmentProperties(baseEnv);
         return contextSource;
     }
 

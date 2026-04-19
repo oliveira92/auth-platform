@@ -10,12 +10,12 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,9 +50,9 @@ public class RoleController {
     public ResponseEntity<Void> assignRole(
             @PathVariable String roleId,
             @Valid @RequestBody AssignRoleRequest request,
-            @RequestHeader(value = "X-Username", required = false) String requestingUser) {
+            Authentication authentication) {
 
-        String assignedBy = requestingUser != null ? requestingUser : "system";
+        String assignedBy = authentication != null ? authentication.getName() : "system";
         manageRoleUseCase.assignRoleToUser(request.username(), roleId, request.applicationId(), assignedBy);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }

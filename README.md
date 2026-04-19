@@ -34,16 +34,16 @@ A **Auth Platform** é a solução corporativa de autenticação e autorização
 ### Fluxo de Autenticação
 
 ```
-Usuário → Aplicação → API Gateway (8080)
-                           ↓ Bearer Token validation (JWT RS256)
-                      Auth Service (8081)
+Usuário → Aplicação → Auth Service (8081)
                            ↓ LDAP BIND + search
                       LDAP / Active Directory
                            ↓ User + Groups
-                      JWT Token (access + refresh)
+                      JWT Token (access + refresh) RS256
                            ↓
                       Redis (token store / blacklist)
 ```
+
+O token JWT emitido é usado diretamente nas chamadas ao `authorization-service (8082)`, que valida o Bearer token de forma local usando a chave pública RSA.
 
 ---
 
@@ -109,21 +109,20 @@ auth-service/
 
 | Camada | Tecnologia | Versão |
 |--------|-----------|--------|
-| Linguagem | Java | 21 (LTS) |
-| Framework | Spring Boot | 3.4.4 |
-| Gateway | Spring Cloud Gateway | 2024.0.1 |
+| Linguagem | Java | 25 (LTS) |
+| Framework | Spring Boot | 3.5.13 |
 | LDAP | Spring LDAP Core + Spring Security LDAP | 3.x |
-| JWT | JJWT (jjwt-api) | 0.12.6 |
-| Chaves RSA | BouncyCastle | 1.78.1 |
+| JWT | JJWT (jjwt-api) | 0.13.0 |
+| Chaves RSA | BouncyCastle | 1.84 |
 | Cache/Tokens | Spring Data Redis + Lettuce | 3.x |
 | RBAC Database | Spring Data JPA + PostgreSQL | 3.x / 16 |
 | Migrações | Flyway | 10.x |
-| AWS Config | Spring Cloud AWS Parameter Store | 3.2.1 |
-| AWS Secrets | Spring Cloud AWS Secrets Manager | 3.2.1 |
-| Métricas | Micrometer + Prometheus | 1.14.x |
-| Docs API | SpringDoc OpenAPI (Swagger UI) | 2.8.4 |
+| AWS Config | Spring Cloud AWS Parameter Store | 3.4.0 |
+| AWS Secrets | Spring Cloud AWS Secrets Manager | 3.4.0 |
+| Métricas | Micrometer + Prometheus | 1.15.x |
+| Docs API | SpringDoc OpenAPI (Swagger UI) | 3.0.3 |
 | Threads | Virtual Threads (Java 21+) | — |
-| Container | eclipse-temurin:21-jre-alpine | — |
+| Container | eclipse-temurin:25-jre-alpine | — |
 | Local AWS | LocalStack | 3.4 |
 | Local LDAP | OpenLDAP (osixia/openldap) | 1.5.0 |
 
@@ -159,12 +158,7 @@ auth-platform/
 │   ├── Dockerfile
 │   └── src/
 │
-├── authorization-service/           ← Microsserviço: RBAC + Registro de Aplicações
-│   ├── pom.xml                      ← Spring Boot parent independente
-│   ├── Dockerfile
-│   └── src/
-│
-└── api-gateway/                     ← Microsserviço: API Gateway (Spring Cloud Gateway)
+└── authorization-service/           ← Microsserviço: RBAC + Registro de Aplicações
     ├── pom.xml                      ← Spring Boot parent independente
     ├── Dockerfile
     └── src/
@@ -178,7 +172,7 @@ auth-platform/
 
 - **Docker** 24+ e **Docker Compose** V2
 - **Rancher Desktop** (ou Docker Desktop)
-- **Java 21** (JDK — para build local)
+- **Java 25** (JDK — para build local)
 - **Maven 3.9+**
 - **OpenSSL** (para geração de chaves RSA)
 
@@ -215,7 +209,6 @@ make build
 # Ou individualmente
 cd auth-service && mvn clean package -DskipTests
 cd authorization-service && mvn clean package -DskipTests
-cd api-gateway && mvn clean package -DskipTests
 ```
 
 #### 4. Subir o ambiente
@@ -231,7 +224,6 @@ make up
 ```
 1. postgres, redis, openldap, localstack   (infraestrutura)
 2. auth-service, authorization-service     (serviços de negócio)
-3. api-gateway                             (ponto de entrada)
 ```
 
 > O LocalStack inicializa automaticamente os segredos/parâmetros AWS via  
@@ -246,18 +238,15 @@ docker compose ps
 # Health checks individuais
 curl http://localhost:8081/actuator/health    # Auth Service
 curl http://localhost:8082/actuator/health    # Authorization Service
-curl http://localhost:8080/actuator/health    # API Gateway
 ```
 
 #### 6. Acessar interfaces
 
 | Serviço | URL | Credenciais |
 |---------|-----|-------------|
-| API Gateway (entrada) | http://localhost:8080 | — |
-| Swagger UI (aggregado) | http://localhost:8080/swagger-ui.html | — |
-| phpLDAPadmin | http://localhost:8090 | cn=admin,dc=authplatform,dc=com / admin |
 | Auth Service Swagger | http://localhost:8081/swagger-ui.html | — |
 | Authorization Swagger | http://localhost:8082/swagger-ui.html | — |
+| phpLDAPadmin | http://localhost:8090 | cn=admin,dc=authplatform,dc=com / admin |
 
 ---
 
@@ -275,10 +264,8 @@ curl http://localhost:8080/actuator/health    # API Gateway
 │   ├── auth.ldap.group-search-base                = ou=Groups
 │   ├── auth.jwt.access-token-expiration-seconds   = 900
 │   └── auth.jwt.refresh-token-expiration-seconds  = 86400
-├── authorization-service/
-│   └── spring.datasource.url                      = jdbc:postgresql://db:5432/authplatform
-└── api-gateway/
-    └── server.port                                = 8080
+└── authorization-service/
+    └── spring.datasource.url                      = jdbc:postgresql://db:5432/authplatform
 ```
 
 ### Estrutura no Secrets Manager
@@ -348,7 +335,7 @@ Os serviços precisam de permissões IAM (via EC2 instance profile, ECS Task Rol
 
 ## Endpoints da API
 
-Todos os requests passam pelo **API Gateway** na porta **8080**.
+Os endpoints de autenticação estão no `auth-service` (porta **8081**) e os de autorização no `authorization-service` (porta **8082**).
 
 ### Autenticação
 
@@ -378,7 +365,7 @@ Autentica com credenciais LDAP/AD e retorna par de tokens JWT.
 
 **Exemplo curl:**
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
+curl -X POST http://localhost:8081/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"john.doe","password":"password123","applicationId":"test-app"}'
 ```
@@ -447,12 +434,12 @@ Revoga o token atual.
 
 Verifica se usuário tem permissão em um recurso.
 
-**Headers:** `X-Username: john.doe` (propagado pelo Gateway)
+**Headers:** `Authorization: Bearer <token>` (username extraído do JWT pelo serviço)
 
 **Query params:** `applicationId`, `resource`, `action`
 
 ```bash
-curl "http://localhost:8080/api/v1/authorization/check?applicationId=my-app&resource=orders&action=read" \
+curl "http://localhost:8082/api/v1/authorization/check?applicationId=my-app&resource=orders&action=read" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -474,7 +461,7 @@ curl "http://localhost:8080/api/v1/authorization/check?applicationId=my-app&reso
 Lista todas as permissões e roles do usuário para uma aplicação.
 
 ```bash
-curl "http://localhost:8080/api/v1/authorization/permissions?applicationId=my-app" \
+curl "http://localhost:8082/api/v1/authorization/permissions?applicationId=my-app" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -540,18 +527,16 @@ String username = claims.getSubject();
 List<String> roles = claims.get("roles", List.class);
 ```
 
-### Headers Propagados pelo Gateway
+### Validação de JWT por Serviço
 
-Após validação JWT, o API Gateway adiciona headers para os serviços downstream:
+Cada serviço valida o `Authorization: Bearer <token>` diretamente. O username é extraído do claim `sub` do JWT — não são necessários headers propagados.
 
-| Header | Conteúdo | Exemplo |
-|--------|----------|---------|
-| `X-Username` | Nome de usuário LDAP | `john.doe` |
-| `X-User-Roles` | Roles separadas por vírgula | `ROLE_ENGINEERS,ROLE_PLATFORM` |
-| `X-User-Groups` | Grupos LDAP separados por vírgula | `engineers,platform-team` |
-| `X-Application-Id` | ID da aplicação no token | `meu-servico` |
-| `X-Token-Id` | UUID único do token | `uuid-v4` |
-| `X-Correlation-ID` | ID de rastreabilidade | `uuid-v4` |
+| Serviço | Operação com JWT |
+|---------|-----------------|
+| `auth-service` | Emite tokens (chave privada RSA) + valida para introspection |
+| `authorization-service` | Valida tokens (chave pública RSA) para autenticar requisições |
+
+> **Nota sobre API Gateway:** A adição de um API Gateway (AWS API Gateway, Kong, Nginx) na frente destes serviços está prevista para uma fase futura. Quando implementado, poderá centralizar a validação JWT e injetar headers de identidade.
 
 ---
 
@@ -632,7 +617,7 @@ kubectl apply -f k8s/
 - [x] Token revocation / logout
 - [x] RBAC básico (roles e permissões por aplicação)
 - [x] Auto-registro de aplicações
-- [x] API Gateway com validação JWT
+- [x] Validação JWT nativa em cada microsserviço (RS256)
 - [x] AWS Parameter Store + Secrets Manager
 - [x] Docker Compose para ambiente local
 - [x] OpenAPI / Swagger UI
@@ -642,7 +627,8 @@ kubectl apply -f k8s/
 
 - [ ] Sincronização periódica de grupos LDAP → Redis
 - [ ] Auditoria completa (audit-service)
-- [ ] Rate limiting no API Gateway (por IP e por `applicationId`)
+- [ ] API Gateway (AWS API Gateway / Kong) como ponto de entrada centralizado
+- [ ] Rate limiting (por IP e por `applicationId`)
 - [ ] Suporte a múltiplos domínios LDAP/AD
 - [ ] Cache de usuários LDAP (reduzir round trips)
 

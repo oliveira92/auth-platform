@@ -190,36 +190,3 @@ services:
       retries: 10
       start_period: 60s
 
-  api-gateway:
-    build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    container_name: auth-gateway
-    environment:
-      SPRING_PROFILES_ACTIVE: local
-      SERVER_PORT: 8080
-      AUTH_SERVICE_HOST: auth-service
-      AUTH_SERVICE_PORT: 8081
-      AUTHZ_SERVICE_HOST: authorization-service
-      AUTHZ_SERVICE_PORT: 8082
-      AWS_REGION: us-east-1
-      AWS_ENDPOINT_OVERRIDE: http://localstack:4566
-      JWT_ISSUER: auth-platform
-      AWS_JWT_PUBLIC_KEY_SECRET: auth-platform/shared/jwt-public-key
-    ports:
-      - "8080:8080"
-    depends_on:
-      auth-service:
-        condition: service_healthy
-      authorization-service:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
-    networks:
-      - auth-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
-      start_period: 60s

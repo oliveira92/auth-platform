@@ -1,16 +1,13 @@
-.PHONY: build build-auth build-authz build-gateway up down logs clean keys
+.PHONY: build build-auth build-authz up down logs clean keys
 
 ## Build all services
-build: build-auth build-authz build-gateway
+build: build-auth build-authz
 
 build-auth:
 	cd auth-service && mvn clean package -DskipTests
 
 build-authz:
 	cd authorization-service && mvn clean package -DskipTests
-
-build-gateway:
-	cd api-gateway && mvn clean package -DskipTests
 
 ## Docker Compose
 up:
@@ -30,4 +27,3 @@ keys:
 clean:
 	cd auth-service && mvn clean
 	cd authorization-service && mvn clean
-	cd api-gateway && mvn clean
