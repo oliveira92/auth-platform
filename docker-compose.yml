@@ -11,6 +11,7 @@ volumes:
   postgres-data:
   redis-data:
   openldap-data:
+  openldap-config:
   localstack-data:
 
 services:
@@ -69,7 +70,7 @@ services:
       - "389:389"
     volumes:
       - openldap-data:/var/lib/ldap
-      - ./scripts/ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/bootstrap.ldif
+      - openldap-config:/etc/ldap/slapd.d
     networks:
       - auth-network
     healthcheck:
@@ -91,6 +92,20 @@ services:
         condition: service_healthy
     networks:
       - auth-network
+
+  ldap-init:
+    image: osixia/openldap:1.5.0
+    container_name: auth-ldap-init
+    entrypoint: ["/bin/sh", "/ldap/ldap-init.sh"]
+    volumes:
+      - ./scripts/ldap/bootstrap.ldif:/ldap/bootstrap.ldif:ro
+      - ./scripts/ldap/ldap-init.sh:/ldap/ldap-init.sh:ro
+    depends_on:
+      openldap:
+        condition: service_healthy
+    networks:
+      - auth-network
+    restart: "no"
 
   localstack:
     image: localstack/localstack:3.4
@@ -146,8 +161,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      openldap:
-        condition: service_healthy
+      ldap-init:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
     networks:

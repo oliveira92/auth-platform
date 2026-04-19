@@ -2,9 +2,11 @@
 
 spring:
   config:
-    import: "optional:aws-parameterstore:/config/auth-platform/authorization-service/"
+    import: ""  # Disable Parameter Store for local — config comes from env vars and application.yml defaults
   cloud:
     aws:
+      region:
+        static: us-east-1
       endpoint: http://localstack:4566
       credentials:
         access-key: test

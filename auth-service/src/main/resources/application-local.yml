@@ -6,6 +6,8 @@ spring:
     import: ""  # Disable AWS Parameter Store for local
   cloud:
     aws:
+      region:
+        static: ${AWS_REGION:us-east-1}
       endpoint: http://localstack:4566
       credentials:
         access-key: test
