@@ -32,7 +32,7 @@ title: Senior Engineer
 uidNumber: 1001
 gidNumber: 1001
 homeDirectory: /home/john.doe
-userPassword: {SSHA}password123
+userPassword: {CLEARTEXT}password123
 
 dn: uid=jane.smith,ou=users,dc=authplatform,dc=com
 objectClass: inetOrgPerson
@@ -49,7 +49,7 @@ title: Platform Engineer
 uidNumber: 1002
 gidNumber: 1001
 homeDirectory: /home/jane.smith
-userPassword: {SSHA}password123
+userPassword: {CLEARTEXT}password123
 
 dn: uid=admin.user,ou=users,dc=authplatform,dc=com
 objectClass: inetOrgPerson
@@ -66,7 +66,7 @@ title: System Administrator
 uidNumber: 1000
 gidNumber: 1000
 homeDirectory: /home/admin.user
-userPassword: {SSHA}admin123
+userPassword: {CLEARTEXT}admin123
 
 # ── Groups ─────────────────────────────────────────────────────────────
 

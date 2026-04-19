@@ -9,7 +9,6 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.util.io.pem.PemObject;
@@ -22,7 +21,6 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -32,19 +30,9 @@ import java.util.List;
 public class JwtTokenAdapter implements JwtPort {
 
     private final JwtProperties jwtProperties;
-    private PrivateKey privateKey;
-    private PublicKey publicKey;
 
-    @PostConstruct
-    public void init() {
-        try {
-            this.privateKey = loadPrivateKey(jwtProperties.getPrivateKey());
-            this.publicKey = loadPublicKey(jwtProperties.getPublicKey());
-            log.info("JWT RSA keys loaded successfully");
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to load JWT RSA keys", e);
-        }
-    }
+    private volatile PrivateKey privateKey;
+    private volatile PublicKey publicKey;
 
     @Override
     public String generateToken(Token token) {
@@ -58,7 +46,7 @@ public class JwtTokenAdapter implements JwtPort {
             .claim("roles", token.roles())
             .claim("groups", token.groups())
             .claim("applicationId", token.applicationId())
-            .signWith(privateKey, Jwts.SIG.RS256)
+            .signWith(getPrivateKey(), Jwts.SIG.RS256)
             .compact();
     }
 
@@ -66,7 +54,7 @@ public class JwtTokenAdapter implements JwtPort {
     public Token parseToken(String rawToken) {
         try {
             Claims claims = Jwts.parser()
-                .verifyWith(publicKey)
+                .verifyWith(getPublicKey())
                 .build()
                 .parseSignedClaims(rawToken)
                 .getPayload();
@@ -87,6 +75,46 @@ public class JwtTokenAdapter implements JwtPort {
         } catch (JwtException e) {
             throw new InvalidTokenException("Invalid token: " + e.getMessage(), e);
         }
+    }
+
+    private PrivateKey getPrivateKey() {
+        if (privateKey == null) {
+            synchronized (this) {
+                if (privateKey == null) {
+                    String pem = jwtProperties.getPrivateKey();
+                    if (pem == null || pem.isBlank()) {
+                        throw new IllegalStateException("JWT private key not configured — check AWS Secrets Manager or JWT_PRIVATE_KEY env var");
+                    }
+                    try {
+                        this.privateKey = loadPrivateKey(pem);
+                        log.info("JWT private key loaded successfully");
+                    } catch (Exception e) {
+                        throw new IllegalStateException("Failed to load JWT private key", e);
+                    }
+                }
+            }
+        }
+        return privateKey;
+    }
+
+    private PublicKey getPublicKey() {
+        if (publicKey == null) {
+            synchronized (this) {
+                if (publicKey == null) {
+                    String pem = jwtProperties.getPublicKey();
+                    if (pem == null || pem.isBlank()) {
+                        throw new IllegalStateException("JWT public key not configured — check AWS Secrets Manager or JWT_PUBLIC_KEY env var");
+                    }
+                    try {
+                        this.publicKey = loadPublicKey(pem);
+                        log.info("JWT public key loaded successfully");
+                    } catch (Exception e) {
+                        throw new IllegalStateException("Failed to load JWT public key", e);
+                    }
+                }
+            }
+        }
+        return publicKey;
     }
 
     private PrivateKey loadPrivateKey(String pem) throws Exception {

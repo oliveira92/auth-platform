@@ -31,7 +31,7 @@ public class LdapUserAdapter implements LdapUserPort {
 
         AndFilter filter = new AndFilter();
         filter.and(new EqualsFilter("objectClass", "person"));
-        filter.and(new EqualsFilter("sAMAccountName", username));
+        filter.and(new EqualsFilter(ldapProperties.getUsernameAttribute(), username));
 
         boolean authenticated = ldapTemplate.authenticate(
             ldapProperties.getUserSearchBase(),
@@ -56,7 +56,7 @@ public class LdapUserAdapter implements LdapUserPort {
 
         AndFilter filter = new AndFilter();
         filter.and(new EqualsFilter("objectClass", "person"));
-        filter.and(new EqualsFilter("sAMAccountName", username));
+        filter.and(new EqualsFilter(ldapProperties.getUsernameAttribute(), username));
 
         List<User> users = ldapTemplate.search(
             ldapProperties.getUserSearchBase(),
@@ -79,10 +79,13 @@ public class LdapUserAdapter implements LdapUserPort {
 
     private List<String> findGroupsForUser(User user) {
         try {
-            String userDn = resolveDn(user.username());
+            String memberValue = ldapProperties.isGroupMemberIsUsername()
+                ? user.username()
+                : resolveDn(user.username());
+
             AndFilter filter = new AndFilter();
-            filter.and(new EqualsFilter("objectClass", "group"));
-            filter.and(new EqualsFilter("member", userDn));
+            filter.and(new EqualsFilter("objectClass", ldapProperties.getGroupObjectClass()));
+            filter.and(new EqualsFilter(ldapProperties.getGroupMemberAttribute(), memberValue));
 
             return ldapTemplate.search(
                 ldapProperties.getGroupSearchBase(),
@@ -91,7 +94,7 @@ public class LdapUserAdapter implements LdapUserPort {
                     Object cn = attrs.get(ldapProperties.getGroupRoleAttribute());
                     return cn != null ? cn.toString() : null;
                 }
-            ).stream().filter(g -> g != null).toList();
+            ).stream().filter(Objects::nonNull).toList();
         } catch (Exception e) {
             log.warn("Could not fetch groups for user {}: {}", user.username(), e.getMessage());
             return List.of();
@@ -100,15 +103,20 @@ public class LdapUserAdapter implements LdapUserPort {
 
     private String resolveDn(String username) {
         AndFilter filter = new AndFilter();
-        filter.and(new EqualsFilter("sAMAccountName", username));
+        filter.and(new EqualsFilter(ldapProperties.getUsernameAttribute(), username));
         List<String> dns = ldapTemplate.search(
             ldapProperties.getUserSearchBase(),
             filter.toString(),
-            (AttributesMapper<String>) attrs -> attrs.get("distinguishedName") != null
-                ? attrs.get("distinguishedName").get().toString()
-                : null
+            (AttributesMapper<String>) attrs -> {
+                try {
+                    var dn = attrs.get("distinguishedName");
+                    return dn != null ? dn.get().toString() : null;
+                } catch (NamingException e) {
+                    return null;
+                }
+            }
         );
-        return dns.isEmpty() ? username : dns.get(0);
+        return dns.stream().filter(Objects::nonNull).findFirst().orElse(username);
     }
 
     private List<String> mapGroupsToRoles(List<String> groups) {
@@ -127,12 +135,11 @@ public class LdapUserAdapter implements LdapUserPort {
         @Override
         public User mapFromAttributes(Attributes attrs) throws NamingException {
             Map<String, String> attributes = new HashMap<>();
-            String username = getAttr(attrs, "sAMAccountName", fallbackUsername);
+            String username = getAttr(attrs, ldapProperties.getUsernameAttribute(), fallbackUsername);
             String email = getAttr(attrs, "mail", "");
-            String displayName = getAttr(attrs, "displayName", username);
-            String department = getAttr(attrs, "department", "");
+            String displayName = getAttr(attrs, "displayName", getAttr(attrs, "cn", username));
+            String department = getAttr(attrs, "department", getAttr(attrs, "ou", ""));
 
-            attributes.put("employeeId", getAttr(attrs, "employeeID", ""));
             attributes.put("title", getAttr(attrs, "title", ""));
             attributes.put("telephoneNumber", getAttr(attrs, "telephoneNumber", ""));
 

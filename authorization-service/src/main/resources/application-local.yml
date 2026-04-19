@@ -1,0 +1,19 @@
+# Local profile - overrides for Docker Compose / LocalStack environment
+
+spring:
+  config:
+    import: "optional:aws-parameterstore:/config/auth-platform/authorization-service/"
+  cloud:
+    aws:
+      endpoint: http://localstack:4566
+      credentials:
+        access-key: test
+        secret-key: test
+
+aws:
+  endpoint-override: http://localstack:4566
+  region: us-east-1
+
+logging:
+  level:
+    com.authplatform: DEBUG

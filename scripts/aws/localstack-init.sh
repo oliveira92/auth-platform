@@ -99,12 +99,6 @@ aws ssm put-parameter $CLI_ARGS \
   --value "8082" --type String --overwrite
 echo "  [OK] /config/auth-platform/authorization-service/server.port"
 
-# API Gateway parameters
-aws ssm put-parameter $CLI_ARGS \
-  --name "/config/auth-platform/api-gateway/server.port" \
-  --value "8080" --type String --overwrite
-echo "  [OK] /config/auth-platform/api-gateway/server.port"
-
 echo ""
 echo "======================================================"
 echo " LocalStack initialization COMPLETE"
