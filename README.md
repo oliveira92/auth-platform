@@ -64,6 +64,8 @@ O arquivo [`docs/c4-architecture.drawio`](docs/c4-architecture.drawio) contém 4
 
 Abra no [draw.io](https://app.diagrams.net) ou instale a extensão VS Code **Draw.io Integration**.
 
+> **Estado atual da solução:** o ambiente local não possui API Gateway nem service discovery. As aplicações cliente chamam diretamente `auth-service` na porta `8081` e `authorization-service` na porta `8082`. API Gateway/Kong/AWS API Gateway permanece no roadmap como ponto central opcional para uma fase posterior.
+
 ### Estrutura Hexagonal (auth-service)
 
 ```
@@ -116,11 +118,11 @@ auth-service/
 | Chaves RSA | BouncyCastle | 1.84 |
 | Cache/Tokens | Spring Data Redis + Lettuce | 3.x |
 | RBAC Database | Spring Data JPA + PostgreSQL | 3.x / 16 |
-| Migrações | Flyway | 10.x |
+| Migrações | Flyway | 11.x |
 | AWS Config | Spring Cloud AWS Parameter Store | 3.4.0 |
 | AWS Secrets | Spring Cloud AWS Secrets Manager | 3.4.0 |
 | Métricas | Micrometer + Prometheus | 1.15.x |
-| Docs API | SpringDoc OpenAPI (Swagger UI) | 3.0.3 |
+| Docs API | SpringDoc OpenAPI (Swagger UI) | 2.8.4 |
 | Threads | Virtual Threads (Java 21+) | — |
 | Container | eclipse-temurin:25-jre-alpine | — |
 | Local AWS | LocalStack | 3.4 |
@@ -175,6 +177,7 @@ auth-platform/
 - **Java 25** (JDK — para build local)
 - **Maven 3.9+**
 - **OpenSSL** (para geração de chaves RSA)
+- **AWS CLI v2** e **Python 3** para executar o setup AWS de produção
 
 ### Passo a Passo
 
@@ -197,6 +200,8 @@ chmod +x scripts/**/*.sh
 Isso cria:
 - `keys/private_key_pkcs8.pem` — chave privada (NUNCA commitar!)
 - `keys/public_key.pem` — chave pública (pode ser compartilhada)
+
+> Para o fluxo `docker compose up -d`, este passo é opcional: o LocalStack executa `scripts/aws/localstack-init.sh` e gera um par de chaves local dentro do container se ainda não existir. O diretório `./keys` é útil para setup manual e para o script de produção.
 
 #### 3. Build dos serviços
 
@@ -227,7 +232,7 @@ make up
 ```
 
 > O LocalStack inicializa automaticamente os segredos/parâmetros AWS via  
-> `scripts/aws/localstack-init.sh` — incluindo as chaves RSA geradas!
+> `scripts/aws/localstack-init.sh` — incluindo um par de chaves RSA local para desenvolvimento.
 
 #### 5. Verificar saúde dos serviços
 
@@ -248,6 +253,26 @@ curl http://localhost:8082/actuator/health    # Authorization Service
 | Authorization Swagger | http://localhost:8082/swagger-ui.html | — |
 | phpLDAPadmin | http://localhost:8090 | cn=admin,dc=authplatform,dc=com / admin |
 
+### Execução Local Pela IDE
+
+Se preferir rodar `AuthServiceApplication` ou `AuthorizationServiceApplication` pelo IntelliJ:
+
+1. Suba apenas a infraestrutura:
+
+```bash
+docker compose up -d postgres redis openldap ldap-init localstack phpldapadmin
+```
+
+2. Garanta que os segredos locais existem no LocalStack:
+
+```bash
+docker exec auth-localstack bash /etc/localstack/init/ready.d/init-aws.sh
+```
+
+3. Execute a aplicação com o profile `local`.
+
+No profile `local`, os defaults usam `localhost` para Redis, PostgreSQL, OpenLDAP e LocalStack. Quando os serviços rodam dentro do Docker Compose, o `docker-compose.yml` sobrescreve esses valores com os nomes de serviço da rede Docker (`redis`, `postgres`, `openldap`, `localstack`).
+
 ---
 
 ## Configuração AWS
@@ -262,6 +287,7 @@ curl http://localhost:8082/actuator/health    # Authorization Service
 │   ├── auth.ldap.user-search-base                 = ou=Users
 │   ├── auth.ldap.user-search-filter               = (sAMAccountName={0})
 │   ├── auth.ldap.group-search-base                = ou=Groups
+│   ├── auth.ldap.group-search-filter              = (member={0})
 │   ├── auth.jwt.access-token-expiration-seconds   = 900
 │   └── auth.jwt.refresh-token-expiration-seconds  = 86400
 └── authorization-service/
@@ -295,12 +321,23 @@ auth-platform/auth-service/ldap-credentials
 # Gerar chaves RSA
 ./scripts/keys/generate-rsa-keys.sh --output-dir ./keys
 
-# Configurar AWS (interactive)
+# Opcional: informe antes para o script sugerir como default
+export LDAP_URL="ldaps://ad.empresa.com:636"
+export LDAP_BASE_DN="dc=empresa,dc=com"
+export LDAP_USER_SEARCH_BASE="ou=Users"
+export LDAP_USER_SEARCH_FILTER="(sAMAccountName={0})"
+export LDAP_GROUP_SEARCH_BASE="ou=Groups"
+export LDAP_GROUP_SEARCH_FILTER="(member={0})"
+export DB_URL="jdbc:postgresql://db.empresa.com:5432/authplatform"
+
+# Configurar AWS (interativo)
 ./scripts/aws/setup-aws-prod.sh \
   --region us-east-1 \
   --env production \
   --keys-dir ./keys
 ```
+
+O script cria ou atualiza os segredos no Secrets Manager usando JSON válido para chaves PEM multiline e grava os parâmetros LDAP/JWT/PostgreSQL no Parameter Store. Durante a execução, confirme os parâmetros sugeridos e informe a conta de serviço LDAP.
 
 ### IAM Permissions necessárias
 
@@ -348,9 +385,11 @@ Autentica com credenciais LDAP/AD e retorna par de tokens JWT.
 {
   "username": "john.doe",
   "password": "senha123",
-  "applicationId": "minha-aplicacao"
+  "applicationId": "minha-aplicacao-a1b2c3d4"
 }
 ```
+
+Neste endpoint, `applicationId` representa o identificador público da aplicação cliente (`clientId`) usado no fluxo de login.
 
 **Response 200:**
 ```json
@@ -367,7 +406,7 @@ Autentica com credenciais LDAP/AD e retorna par de tokens JWT.
 ```bash
 curl -X POST http://localhost:8081/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"john.doe","password":"password123","applicationId":"test-app"}'
+  -d '{"username":"john.doe","password":"password123","applicationId":"portal-xpto-a1b2c3d4"}'
 ```
 
 ---
@@ -439,7 +478,7 @@ Verifica se usuário tem permissão em um recurso.
 **Query params:** `applicationId`, `resource`, `action`
 
 ```bash
-curl "http://localhost:8082/api/v1/authorization/check?applicationId=my-app&resource=orders&action=read" \
+curl "http://localhost:8082/api/v1/authorization/check?applicationId=app-uuid-001&resource=orders&action=read" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -448,7 +487,7 @@ curl "http://localhost:8082/api/v1/authorization/check?applicationId=my-app&reso
 {
   "allowed": true,
   "username": "john.doe",
-  "applicationId": "my-app",
+  "applicationId": "app-uuid-001",
   "resource": "orders",
   "action": "read"
 }
@@ -461,11 +500,19 @@ curl "http://localhost:8082/api/v1/authorization/check?applicationId=my-app&reso
 Lista todas as permissões e roles do usuário para uma aplicação.
 
 ```bash
-curl "http://localhost:8082/api/v1/authorization/permissions?applicationId=my-app" \
+curl "http://localhost:8082/api/v1/authorization/permissions?applicationId=app-uuid-001" \
   -H "Authorization: Bearer <token>"
 ```
 
 ---
+
+### Estado Atual do RBAC
+
+O `authorization-service` já expõe o fluxo base de auto-serviço para registrar aplicações, criar roles, atribuir roles a usuários e consultar permissões. O modelo de dados também já possui `permissions` e `role_permissions`.
+
+O que ainda não existe como API pública neste momento é o CRUD de permissões e a associação de permissões a roles. Por isso, `/api/v1/authorization/check` só retorna `allowed: true` quando as permissões já estiverem cadastradas e vinculadas à role por seed, migração, script administrativo ou implementação futura desses endpoints.
+
+Para chamadas de RBAC, use o `id` retornado pelo `POST /api/v1/applications` como `applicationId`. O `clientId` retornado no cadastro é o identificador público da aplicação e pode ser usado no fluxo de autenticação/login.
 
 #### `POST /api/v1/applications`
 
@@ -503,10 +550,10 @@ Registra uma nova aplicação (self-service).
 │                                             │
 │  1. Registrar via POST /api/v1/applications │
 │  2. Redirecionar login → Auth Platform      │
-│  3. Validar token via GET /api/v1/auth/     │
-│     validate (ou localmente com public key) │
-│  4. Verificar permissão via               │
-│     GET /api/v1/authorization/check        │
+│  3. Validar token localmente com public key │
+│     ou via POST /api/v1/auth/validate       │
+│  4. Verificar permissão via                 │
+│     GET /api/v1/authorization/check         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -615,7 +662,7 @@ kubectl apply -f k8s/
 - [x] Refresh token com rotação
 - [x] Token validation / introspection (RFC 7662)
 - [x] Token revocation / logout
-- [x] RBAC básico (roles e permissões por aplicação)
+- [x] RBAC básico (registro de aplicações, roles e atribuições por usuário)
 - [x] Auto-registro de aplicações
 - [x] Validação JWT nativa em cada microsserviço (RS256)
 - [x] AWS Parameter Store + Secrets Manager
@@ -627,6 +674,7 @@ kubectl apply -f k8s/
 
 - [ ] Sincronização periódica de grupos LDAP → Redis
 - [ ] Auditoria completa (audit-service)
+- [ ] CRUD de permissões e associação de permissões a roles via API/admin
 - [ ] API Gateway (AWS API Gateway / Kong) como ponto de entrada centralizado
 - [ ] Rate limiting (por IP e por `applicationId`)
 - [ ] Suporte a múltiplos domínios LDAP/AD

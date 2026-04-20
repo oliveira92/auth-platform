@@ -1,4 +1,4 @@
-<mxfile host="drawio-plugin" modified="2026-04-19T03:26:09.534Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36" etag="vdNN5OLGIHwHXMUZNgfs" version="22.1.22" type="embed" pages="4">
+<mxfile host="drawio-plugin" modified="2026-04-20T02:55:29.853Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36" etag="ff79h0xyq_uaceDxuAcc" version="22.1.22" type="embed" pages="4">
   <diagram id="c4-context" name="C4 - Level 1: System Context">
     <mxGraphModel dx="1364" dy="908" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
       <root>
@@ -60,9 +60,6 @@
         <mxCell id="boundary" value="Auth Platform" style="swimlane;startSize=40;fillColor=none;strokeColor=#052E56;strokeWidth=2;fontSize=14;fontStyle=1;dashed=0;rounded=1;" parent="1" vertex="1">
           <mxGeometry x="320" y="80" width="900" height="680" as="geometry" />
         </mxCell>
-        <mxCell id="container-gw" value="&lt;b&gt;API Gateway&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Container: Spring Cloud Gateway]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Ponto de entrada único.&lt;br&gt;Validação JWT, roteamento&lt;br&gt;e propagação de identidade.&lt;br&gt;Porta: 8080" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#438DD5;fontColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="boundary" vertex="1">
-          <mxGeometry x="330" y="80" width="220" height="150" as="geometry" />
-        </mxCell>
         <mxCell id="container-auth" value="&lt;b&gt;Auth Service&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Container: Spring Boot]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Autenticação LDAP/AD.&lt;br&gt;Emissão e validação de&lt;br&gt;tokens JWT (RS256).&lt;br&gt;Porta: 8081" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#438DD5;fontColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="boundary" vertex="1">
           <mxGeometry x="100" y="300" width="220" height="150" as="geometry" />
         </mxCell>
@@ -84,19 +81,11 @@
         <mxCell id="ext2-client" value="&lt;b&gt;Aplicação Cliente&lt;/b&gt;&lt;br&gt;&lt;i&gt;[External System]&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B;fontSize=10;" parent="1" vertex="1">
           <mxGeometry x="80" y="280" width="180" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="r1" value="HTTPS: login, refresh, validate" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=9;" parent="1" source="ext2-client" target="container-gw" edge="1">
+        <mxCell id="r1" value="HTTP :8081&lt;br&gt;login, refresh, validate" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=9;" parent="1" source="ext2-client" target="container-auth" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="r2" value="lb://auth-service" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#0066CC;fontSize=9;" parent="1" source="container-gw" target="container-auth" edge="1">
+        <mxCell id="r2" value="HTTP :8082&lt;br&gt;RBAC e self-service" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#0066CC;fontSize=9;" parent="1" source="ext2-client" target="container-authz" edge="1">
           <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="r3" value="lb://authorization-service" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#0066CC;fontSize=9;" parent="1" source="container-gw" target="container-authz" edge="1">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="r4" value="Registra/descobre serviços" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;fontSize=9;dashed=1;" parent="1" source="container-auth" edge="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="650" y="455" as="targetPoint" />
-          </mxGeometry>
         </mxCell>
         <mxCell id="r5" value="LDAP bind + search" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=9;" parent="1" source="container-auth" target="ext2-ldap" edge="1">
           <mxGeometry relative="1" as="geometry" />
@@ -108,6 +97,9 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="r8" value="Secrets + Parameters" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#FF8C00;fontSize=9;" parent="1" source="container-auth" target="ext2-aws" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9" value="Public key + Parameters" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#FF8C00;fontSize=9;" parent="1" source="container-authz" target="ext2-aws" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
@@ -225,19 +217,13 @@
         <mxCell id="row-apps" value="Application Services" style="swimlane;startSize=30;fillColor=#EBF5FB;strokeColor=#006EAF;fontSize=12;fontStyle=2;rounded=1;" parent="network" vertex="1">
           <mxGeometry x="20" y="300" width="1500" height="200" as="geometry" />
         </mxCell>
-        <mxCell id="deploy-eureka" value="&lt;b&gt;eureka-server&lt;/b&gt;&lt;br&gt;auth-eureka&lt;br&gt;Port: 8761&lt;br&gt;eclipse-temurin:25" style="shape=mxgraph.docker.container;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#006EAF;fontSize=10;" parent="row-apps" vertex="1">
-          <mxGeometry x="20" y="50" width="200" height="120" as="geometry" />
-        </mxCell>
         <mxCell id="deploy-auth" value="&lt;b&gt;auth-service&lt;/b&gt;&lt;br&gt;auth-service&lt;br&gt;Port: 8081&lt;br&gt;eclipse-temurin:25" style="shape=mxgraph.docker.container;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#006EAF;fontSize=10;" parent="row-apps" vertex="1">
-          <mxGeometry x="280" y="50" width="200" height="120" as="geometry" />
+          <mxGeometry x="260" y="50" width="200" height="120" as="geometry" />
         </mxCell>
         <mxCell id="deploy-authz" value="&lt;b&gt;authorization-service&lt;/b&gt;&lt;br&gt;auth-authorization&lt;br&gt;Port: 8082&lt;br&gt;eclipse-temurin:25" style="shape=mxgraph.docker.container;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#006EAF;fontSize=10;" parent="row-apps" vertex="1">
-          <mxGeometry x="540" y="50" width="220" height="120" as="geometry" />
+          <mxGeometry x="520" y="50" width="220" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="deploy-gw" value="&lt;b&gt;api-gateway&lt;/b&gt;&lt;br&gt;auth-gateway&lt;br&gt;Port: 8080&lt;br&gt;eclipse-temurin:25" style="shape=mxgraph.docker.container;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#006EAF;fontSize=10;" parent="row-apps" vertex="1">
-          <mxGeometry x="820" y="50" width="200" height="120" as="geometry" />
-        </mxCell>
-        <mxCell id="ports" value="Portas expostas ao host:  8080 (gateway) | 8081 (auth) | 8082 (authz) | 8761 (eureka) | 4566 (localstack) | 389 (ldap) | 6379 (redis) | 5432 (postgres) | 8090 (ldapadmin)" style="text;html=1;strokeColor=none;fillColor=#FFF3CD;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" parent="network" vertex="1">
+        <mxCell id="ports" value="Portas expostas ao host: 8081 (auth) | 8082 (authz) | 4566 (localstack) | 389 (ldap) | 6379 (redis) | 5432 (postgres) | 8090 (ldapadmin)" style="text;html=1;strokeColor=none;fillColor=#FFF3CD;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;fontStyle=1;" parent="network" vertex="1">
           <mxGeometry x="20" y="820" width="1500" height="50" as="geometry" />
         </mxCell>
       </root>

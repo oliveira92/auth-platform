@@ -5,8 +5,6 @@ spring:
         static: ${AWS_REGION:us-east-1}
   application:
     name: auth-service
-  config:
-    import: "optional:aws-parameterstore:/config/auth-platform/auth-service/"
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
   data:
@@ -86,3 +84,10 @@ logging:
     com.authplatform: DEBUG
     org.springframework.ldap: INFO
     org.springframework.security: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!local"
+    import: "optional:aws-parameterstore:/config/auth-platform/auth-service/"

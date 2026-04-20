@@ -30,7 +30,7 @@ Recebe usuário e senha, vai ao LDAP/AD validar as credenciais, busca os grupos 
 
 ```
 POST /api/v1/auth/login
-{username: "john.doe", password: "senha123", applicationId: "portal-xpto"}
+{username: "john.doe", password: "senha123", applicationId: "portal-xpto-a1b2c3d4"}
          ↓
 AuthController
          ↓ chama
@@ -110,7 +110,7 @@ Atribuições:
 ```
 
 **Porta:** 8082  
-**Dependências:** PostgreSQL (dados persistentes de RBAC)
+**Dependências:** PostgreSQL (dados persistentes de RBAC), AWS Secrets Manager/LocalStack (chave pública RSA para validação de JWT)
 
 **Endpoints:**
 | Método | Path | Função |
@@ -124,6 +124,8 @@ Atribuições:
 | DELETE | `/api/v1/roles/{id}/assignments` | Revogar role de usuário |
 | GET | `/api/v1/authorization/check` | Verificar permissão |
 | GET | `/api/v1/authorization/permissions` | Listar permissões do usuário |
+
+> **Limite atual do MVP:** o modelo de dados já possui permissões e associação role-permission, mas ainda não há endpoint público para criar permissões ou vinculá-las a roles. Até esses endpoints existirem, testes com `allowed:true` dependem de seed/migração/script administrativo que insira registros em `permissions` e `role_permissions`.
 
 **Build independente:**
 ```bash
@@ -212,13 +214,13 @@ Execute na ordem. Use a collection Insomnia ou curl.
 ### 3.3 Checklist de Homologação — Autorização
 
 ```
-□ AUTHZ-01: Registrar aplicação retorna 201 com clientId único
-□ AUTHZ-02: Criar role XPTO_USER para a aplicação retorna 201
-□ AUTHZ-03: Criar role XPTO_RH para a aplicação retorna 201
+□ AUTHZ-01: Registrar aplicação retorna 201 com id e clientId únicos
+□ AUTHZ-02: Criar role XPTO_USER usando o id da aplicação retorna 201
+□ AUTHZ-03: Criar role XPTO_RH usando o id da aplicação retorna 201
 □ AUTHZ-04: Atribuir XPTO_USER a john.doe retorna 201
-□ AUTHZ-05: Verificar beneficios:read para john.doe retorna {allowed: true}
-□ AUTHZ-06: Verificar folha:read para john.doe retorna {allowed: false}
-□ AUTHZ-07: Listar permissões de john.doe mostra [beneficios:read, perfil:read]
+□ AUTHZ-05: Listar roles da aplicação mostra XPTO_USER e XPTO_RH
+□ AUTHZ-06: Sem seed de permissions/role_permissions, verificar beneficios:read retorna {allowed: false}
+□ AUTHZ-07: Com permissions e role_permissions previamente populadas, beneficios:read para john.doe retorna {allowed: true}
 □ AUTHZ-08: Revogar role de john.doe retorna 204
 □ AUTHZ-09: Verificar beneficios:read após revogação retorna {allowed: false}
 ```
@@ -337,6 +339,8 @@ curl -X POST http://localhost:8082/api/v1/applications \
 # { "id": "app-uuid-001", "clientId": "portal-xpto-a1b2c3d4", "status": "ACTIVE" }
 ```
 
+Use o `id` retornado (`app-uuid-001` no exemplo) como `applicationId` nas chamadas de RBAC. Use o `clientId` como identificador público da aplicação no fluxo de login.
+
 **Passo 2 — Criar as roles da aplicação:**
 ```bash
 # Role para usuário comum
@@ -356,7 +360,25 @@ curl -X POST http://localhost:8082/api/v1/roles \
   -d '{ "name": "XPTO_RH", "description": "Acesso RH", "applicationId": "app-uuid-001" }'
 ```
 
-**Passo 3 — Atribuir roles aos usuários:**
+**Passo 3 — Associar permissões às roles (estado atual do MVP):**
+
+Ainda não há endpoint público para cadastrar permissões e vincular permissões a roles. Para homologar o fluxo completo enquanto essa API não existe, use uma migração, seed ou script administrativo no PostgreSQL:
+
+```sql
+INSERT INTO permissions (id, name, description, resource, action)
+VALUES
+  ('perm-beneficios-read', 'beneficios:read', 'Ler beneficios', 'beneficios', 'read'),
+  ('perm-perfil-read', 'perfil:read', 'Ler perfil', 'perfil', 'read')
+ON CONFLICT (resource, action) DO NOTHING;
+
+INSERT INTO role_permissions (role_id, permission_id)
+VALUES
+  ('role-uuid-xpto-user', 'perm-beneficios-read'),
+  ('role-uuid-xpto-user', 'perm-perfil-read')
+ON CONFLICT DO NOTHING;
+```
+
+**Passo 4 — Atribuir roles aos usuários:**
 ```bash
 curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/assignments \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -381,7 +403,8 @@ NAVEGADOR                PORTAL XPTO (Backend)          AUTH PLATFORM
     ├──────────────────────────►│                              │
     │                           │  POST /api/v1/auth/login     │
     │                           │  {username, password,        │
-    │                           │   applicationId:"xpto"}      │
+    │                           │   applicationId: clientId}   │
+    │                           │  ex: portal-xpto-a1b2c3d4    │
     │                           ├─────────────────────────────►│
     │                           │                              │ LDAP bind
     │                           │                              │ busca grupos
@@ -406,7 +429,7 @@ async function login(username, password) {
     body: JSON.stringify({
       username,
       password,
-      applicationId: 'portal-xpto'
+      applicationId: 'portal-xpto-a1b2c3d4'
     })
   });
 
@@ -442,7 +465,7 @@ NAVEGADOR               PORTAL XPTO API         AUTH PLATFORM
     │                        │ Backend verifica permissão:
     │                        │ GET :8082/api/v1/authorization/check
     │                        │ Authorization: Bearer <access_token>
-    │                        │ ?applicationId=portal-xpto
+    │                        │ ?applicationId=app-uuid-001
     │                        │ &resource=folha&action=read
     │                        ├───────────────────────►│
     │                        │                        │ → valida JWT RS256
@@ -470,7 +493,7 @@ public class FolhaController {
         String username = authentication.getName();
 
         boolean podeAcessar = authorizationClient.checkPermission(
-            username, "portal-xpto", "folha", "read"
+            username, "app-uuid-001", "folha", "read"
         );
 
         if (!podeAcessar) {
@@ -484,6 +507,7 @@ public class FolhaController {
 ```
 
 O `AuthorizationClient` chama `GET http://authorization-service:8082/api/v1/authorization/check` passando o Bearer token recebido da requisição original.
+Use o `id` da aplicação registrada no parâmetro `applicationId`; o `clientId` fica restrito ao login/refresh no `auth-service`.
 
 ---
 
@@ -511,7 +535,7 @@ async function refreshToken() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       refresh_token: tokenStore.refreshToken,
-      application_id: 'portal-xpto'
+      application_id: 'portal-xpto-a1b2c3d4'
     })
   });
 
@@ -535,7 +559,7 @@ async function refreshToken() {
 // portal-xpto/menu.component.js
 async function buildMenu(accessToken) {
   const response = await fetch(
-    '/api/v1/authorization/permissions?applicationId=portal-xpto',
+    '/api/v1/authorization/permissions?applicationId=app-uuid-001',
     { headers: { 'Authorization': `Bearer ${accessToken}` } }
   );
 
@@ -590,9 +614,9 @@ async function buildMenu(accessToken) {
 │  GET /api/beneficios                                        │
 │  Authorization: Bearer <access_token>                       │
 │         ↓                                                   │
-│  Gateway valida JWT → injeta X-Username, X-User-Roles       │
+│  Backend valida JWT localmente ou chama authorization-check │
 │         ↓                                                   │
-│  Backend do Portal recebe headers e retorna dados           │
+│  Backend do Portal decide acesso e retorna dados            │
 │                                                             │
 │  Antes do token expirar (< 60s):                           │
 │  POST /api/v1/auth/refresh → novo par de tokens (silencioso)│
@@ -621,26 +645,26 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 
 1. Clique no dropdown de ambiente (canto superior esquerdo)
 2. Selecione **"Local - Docker Compose"** para testes locais
-3. As variáveis `base_url`, `username`, `password` já estão preenchidas
+3. As variáveis `auth_url`, `authz_url`, `username`, `password` e `app_client_id` já estão preenchidas com defaults locais para smoke test. Após registrar uma aplicação, atualize `app_client_id` com o `clientId` retornado e preencha `app_id` com o `id` retornado para os requests de RBAC.
 
 ### Como usar a collection
 
 **Fluxo rápido de validação:**
-1. Execute `Health Checks / API Gateway` — deve retornar `{"status": "UP"}`
+1. Execute `Health Checks / Auth Service` e `Health Checks / Authorization Service` — ambos devem retornar `{"status": "UP"}`
 2. Execute `Autenticacao / Login (LDAP/AD)` — copie o `access_token` para a variável de ambiente
 3. Execute `Autenticacao / Validar Token` — deve retornar `{"active": true}`
-4. Execute o fluxo completo `Portal XPTO - Fluxo Completo` na ordem dos passos XPTO-01 a XPTO-09
+4. Execute `Portal XPTO - Fluxo de Consumo` na ordem dos passos XPTO-01 a XPTO-09. Antes dos checks que esperam `allowed:true`, crie/atribua as roles pela pasta `Gestao de Roles` e popule `permissions`/`role_permissions` via seed, migração ou script administrativo.
 
 ### Pastas da Collection
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `Health Checks` | 3 requests de verificação de saúde (Gateway, Auth, Authorization) |
+| `Health Checks` | 2 requests de verificação de saúde (Auth, Authorization) |
 | `Autenticacao` | Login, Refresh, Validate, Logout (+ casos negativos) |
 | `Autorizacao (RBAC)` | Check permission, listar permissões |
 | `Gestao de Aplicacoes` | Registrar, atualizar, desativar aplicações |
 | `Gestao de Roles` | Criar roles, atribuir/revogar para usuários |
-| `Portal XPTO - Fluxo Completo` | 9 passos end-to-end do caso de uso real |
+| `Portal XPTO - Fluxo de Consumo` | 9 passos do caso real após onboarding básico de aplicação, roles e permissões |
 | `Documentacao (Swagger)` | Links para as UIs de documentação |
 
 ### Variáveis de Ambiente
@@ -653,5 +677,6 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 | `refresh_token` | JWT refresh token (atualizar após login/refresh) | `eyJ...` |
 | `username` | Usuário LDAP para testes | `john.doe` |
 | `password` | Senha do usuário LDAP | `password123` |
-| `app_id` | ID da aplicação registrada | `portal-xpto` |
+| `app_client_id` | Identificador público usado no login | `portal-xpto-a1b2c3d4` |
+| `app_id` | ID retornado pelo cadastro da aplicação, usado no RBAC | `uuid` |
 | `role_id` | ID de uma role (após criação) | `uuid` |

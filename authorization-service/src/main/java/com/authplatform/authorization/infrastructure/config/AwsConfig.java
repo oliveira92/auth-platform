@@ -38,7 +38,7 @@ public class AwsConfig {
     @Bean
     @Profile("local")
     public SecretsManagerClient localSecretsManagerClient(
-            @Value("${aws.endpoint-override:http://localstack:4566}") String endpointUrl) {
+            @Value("${aws.endpoint-override:http://localhost:4566}") String endpointUrl) {
         return SecretsManagerClient.builder()
             .region(Region.of(awsRegion))
             .endpointOverride(URI.create(endpointUrl))
@@ -53,7 +53,7 @@ public class AwsConfig {
     @Bean
     @Profile("local")
     public SsmClient localSsmClient(
-            @Value("${aws.endpoint-override:http://localstack:4566}") String endpointUrl) {
+            @Value("${aws.endpoint-override:http://localhost:4566}") String endpointUrl) {
         return SsmClient.builder()
             .region(Region.of(awsRegion))
             .endpointOverride(URI.create(endpointUrl))

@@ -28,13 +28,89 @@ if [ ! -f "$KEYS_DIR/private_key_pkcs8.pem" ] || [ ! -f "$KEYS_DIR/public_key.pe
   exit 1
 fi
 
-PRIVATE_KEY=$(cat "$KEYS_DIR/private_key_pkcs8.pem")
-PUBLIC_KEY=$(cat "$KEYS_DIR/public_key.pem")
+read_required() {
+  local var_name="$1"
+  local prompt="$2"
+  local current_value="${!var_name:-}"
+  local new_value
+
+  if [ -n "$current_value" ]; then
+    read -r -p "$prompt [$current_value]: " new_value
+    new_value="${new_value:-$current_value}"
+  else
+    read -r -p "$prompt: " new_value
+  fi
+
+  if [ -z "$new_value" ]; then
+    echo "ERROR: $var_name is required"
+    exit 1
+  fi
+
+  printf -v "$var_name" '%s' "$new_value"
+}
+
+read_with_default() {
+  local var_name="$1"
+  local prompt="$2"
+  local default_value="$3"
+  local current_value="${!var_name:-$default_value}"
+  local new_value
+
+  read -r -p "$prompt [$current_value]: " new_value
+  new_value="${new_value:-$current_value}"
+
+  printf -v "$var_name" '%s' "$new_value"
+}
+
+# Prompt for runtime parameters
+read_required LDAP_URL "LDAP URL (ex: ldaps://ad.empresa.com:636)"
+read_required LDAP_BASE_DN "LDAP Base DN (ex: dc=empresa,dc=com)"
+read_with_default LDAP_USER_SEARCH_BASE "LDAP user search base" "ou=Users"
+read_with_default LDAP_USER_SEARCH_FILTER "LDAP user search filter" "(sAMAccountName={0})"
+read_with_default LDAP_GROUP_SEARCH_BASE "LDAP group search base" "ou=Groups"
+read_with_default LDAP_GROUP_SEARCH_FILTER "LDAP group search filter" "(member={0})"
+read_required DB_URL "Authorization DB JDBC URL (ex: jdbc:postgresql://db:5432/authplatform)"
 
 # Prompt for LDAP credentials
 read -r -p "LDAP Service Account DN: " LDAP_DN
 read -r -s -p "LDAP Service Account Password: " LDAP_PASSWORD
 echo
+
+if [ -z "$LDAP_DN" ] || [ -z "$LDAP_PASSWORD" ]; then
+  echo "ERROR: LDAP service account DN and password are required"
+  exit 1
+fi
+
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+JWT_KEYS_SECRET_FILE="$TEMP_DIR/jwt-keys.json"
+JWT_PUBLIC_KEY_SECRET_FILE="$TEMP_DIR/jwt-public-key.json"
+LDAP_SECRET_FILE="$TEMP_DIR/ldap-credentials.json"
+
+python3 - "$KEYS_DIR/private_key_pkcs8.pem" "$KEYS_DIR/public_key.pem" \
+  "$JWT_KEYS_SECRET_FILE" "$JWT_PUBLIC_KEY_SECRET_FILE" "$LDAP_SECRET_FILE" \
+  "$LDAP_DN" "$LDAP_PASSWORD" <<'PY'
+import json
+import sys
+
+private_key_path, public_key_path, jwt_keys_path, public_key_secret_path, ldap_secret_path, ldap_dn, ldap_password = sys.argv[1:]
+
+with open(private_key_path, encoding="utf-8") as private_key_file:
+    private_key = private_key_file.read()
+
+with open(public_key_path, encoding="utf-8") as public_key_file:
+    public_key = public_key_file.read()
+
+with open(jwt_keys_path, "w", encoding="utf-8") as jwt_keys_file:
+    json.dump({"privateKey": private_key, "publicKey": public_key}, jwt_keys_file)
+
+with open(public_key_secret_path, "w", encoding="utf-8") as public_key_secret_file:
+    json.dump({"publicKey": public_key}, public_key_secret_file)
+
+with open(ldap_secret_path, "w", encoding="utf-8") as ldap_secret_file:
+    json.dump({"username": ldap_dn, "password": ldap_password}, ldap_secret_file)
+PY
 
 # ─── Secrets Manager ───────────────────────────────────────────────────────
 
@@ -44,36 +120,36 @@ aws secretsmanager create-secret \
   --region "$REGION" \
   --name "auth-platform/auth-service/jwt-keys" \
   --description "JWT RSA Key Pair for auth-service [$ENV]" \
-  --secret-string "{\"privateKey\":\"$PRIVATE_KEY\",\"publicKey\":\"$PUBLIC_KEY\"}" \
+  --secret-string "file://$JWT_KEYS_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
   --secret-id "auth-platform/auth-service/jwt-keys" \
-  --secret-string "{\"privateKey\":\"$PRIVATE_KEY\",\"publicKey\":\"$PUBLIC_KEY\"}"
+  --secret-string "file://$JWT_KEYS_SECRET_FILE"
 echo "  [OK] JWT keys secret"
 
 aws secretsmanager create-secret \
   --region "$REGION" \
   --name "auth-platform/shared/jwt-public-key" \
   --description "JWT RSA Public Key for token validation [$ENV]" \
-  --secret-string "{\"publicKey\":\"$PUBLIC_KEY\"}" \
+  --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
   --secret-id "auth-platform/shared/jwt-public-key" \
-  --secret-string "{\"publicKey\":\"$PUBLIC_KEY\"}"
+  --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE"
 echo "  [OK] JWT public key secret"
 
 aws secretsmanager create-secret \
   --region "$REGION" \
   --name "auth-platform/auth-service/ldap-credentials" \
   --description "LDAP service account credentials [$ENV]" \
-  --secret-string "{\"username\":\"$LDAP_DN\",\"password\":\"$LDAP_PASSWORD\"}" \
+  --secret-string "file://$LDAP_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
   --secret-id "auth-platform/auth-service/ldap-credentials" \
-  --secret-string "{\"username\":\"$LDAP_DN\",\"password\":\"$LDAP_PASSWORD\"}"
+  --secret-string "file://$LDAP_SECRET_FILE"
 echo "  [OK] LDAP credentials secret"
 
 # ─── Parameter Store ───────────────────────────────────────────────────────
@@ -87,6 +163,18 @@ aws ssm put-parameter --region "$REGION" --overwrite \
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "/config/auth-platform/auth-service/auth.ldap.base-dn" \
   --value "${LDAP_BASE_DN}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/auth-service/auth.ldap.user-search-base" \
+  --value "${LDAP_USER_SEARCH_BASE}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/auth-service/auth.ldap.user-search-filter" \
+  --value "${LDAP_USER_SEARCH_FILTER}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/auth-service/auth.ldap.group-search-base" \
+  --value "${LDAP_GROUP_SEARCH_BASE}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/auth-service/auth.ldap.group-search-filter" \
+  --value "${LDAP_GROUP_SEARCH_FILTER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "/config/auth-platform/auth-service/auth.jwt.access-token-expiration-seconds" \
   --value "900" --type String

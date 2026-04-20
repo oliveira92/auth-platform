@@ -1,25 +1,23 @@
 # Local profile - uses OpenLDAP test container and local RSA keys
-# Run: scripts/generate-rsa-keys.sh to create RSA keys
+# Run: scripts/keys/generate-rsa-keys.sh to create RSA keys
 
 spring:
-  config:
-    import: ""  # Disable AWS Parameter Store for local
   cloud:
     aws:
       region:
         static: ${AWS_REGION:us-east-1}
-      endpoint: http://localstack:4566
+      endpoint: ${AWS_ENDPOINT_OVERRIDE:http://localhost:4566}
       credentials:
         access-key: test
         secret-key: test
 
 aws:
-  endpoint-override: "http://localstack:4566"
+  endpoint-override: ${AWS_ENDPOINT_OVERRIDE:http://localhost:4566}
   region: us-east-1
 
 auth:
   ldap:
-    url: "ldap://openldap:389"
+    url: ${LDAP_URL:ldap://localhost:389}
     base-dn: "dc=authplatform,dc=com"
     user-dn: "cn=admin,dc=authplatform,dc=com"
     password: "admin"

@@ -12,6 +12,10 @@ AWS_REGION="us-east-1"
 ENDPOINT="http://localhost:4566"
 CLI_ARGS="--endpoint-url $ENDPOINT --region $AWS_REGION"
 
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$AWS_REGION}"
+
 # Wait for LocalStack to be ready
 echo "Waiting for LocalStack services..."
 sleep 5
@@ -32,8 +36,35 @@ if [ ! -f "$KEYS_DIR/private_key.pem" ]; then
   echo "RSA key pair generated."
 fi
 
-PRIVATE_KEY=$(cat "$KEYS_DIR/private_key_pkcs8.pem")
-PUBLIC_KEY=$(cat "$KEYS_DIR/public_key.pem")
+JWT_KEYS_SECRET_FILE="$KEYS_DIR/jwt-keys.json"
+JWT_PUBLIC_KEY_SECRET_FILE="$KEYS_DIR/jwt-public-key.json"
+LDAP_SECRET_FILE="$KEYS_DIR/ldap-credentials.json"
+
+python3 - "$KEYS_DIR/private_key_pkcs8.pem" "$KEYS_DIR/public_key.pem" \
+  "$JWT_KEYS_SECRET_FILE" "$JWT_PUBLIC_KEY_SECRET_FILE" "$LDAP_SECRET_FILE" <<'PY'
+import json
+import sys
+
+private_key_path, public_key_path, jwt_keys_path, public_key_secret_path, ldap_secret_path = sys.argv[1:]
+
+with open(private_key_path, encoding="utf-8") as private_key_file:
+    private_key = private_key_file.read()
+
+with open(public_key_path, encoding="utf-8") as public_key_file:
+    public_key = public_key_file.read()
+
+with open(jwt_keys_path, "w", encoding="utf-8") as jwt_keys_file:
+    json.dump({"privateKey": private_key, "publicKey": public_key}, jwt_keys_file)
+
+with open(public_key_secret_path, "w", encoding="utf-8") as public_key_secret_file:
+    json.dump({"publicKey": public_key}, public_key_secret_file)
+
+with open(ldap_secret_path, "w", encoding="utf-8") as ldap_secret_file:
+    json.dump({
+        "username": "cn=admin,dc=authplatform,dc=com",
+        "password": "admin"
+    }, ldap_secret_file)
+PY
 
 # ─────────────────────────────────────────────
 # AWS Secrets Manager
@@ -44,33 +75,33 @@ echo "Creating Secrets Manager entries..."
 aws secretsmanager create-secret $CLI_ARGS \
   --name "auth-platform/auth-service/jwt-keys" \
   --description "JWT RSA Key Pair for auth-service" \
-  --secret-string "{\"privateKey\":\"$PRIVATE_KEY\",\"publicKey\":\"$PUBLIC_KEY\"}" \
+  --secret-string "file://$JWT_KEYS_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret $CLI_ARGS \
   --secret-id "auth-platform/auth-service/jwt-keys" \
-  --secret-string "{\"privateKey\":\"$PRIVATE_KEY\",\"publicKey\":\"$PUBLIC_KEY\"}"
+  --secret-string "file://$JWT_KEYS_SECRET_FILE"
 echo "  [OK] auth-platform/auth-service/jwt-keys"
 
 # JWT Public Key (shared for validation in other services)
 aws secretsmanager create-secret $CLI_ARGS \
   --name "auth-platform/shared/jwt-public-key" \
   --description "JWT RSA Public Key for token validation" \
-  --secret-string "{\"publicKey\":\"$PUBLIC_KEY\"}" \
+  --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret $CLI_ARGS \
   --secret-id "auth-platform/shared/jwt-public-key" \
-  --secret-string "{\"publicKey\":\"$PUBLIC_KEY\"}"
+  --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE"
 echo "  [OK] auth-platform/shared/jwt-public-key"
 
 # LDAP Credentials
 aws secretsmanager create-secret $CLI_ARGS \
   --name "auth-platform/auth-service/ldap-credentials" \
   --description "LDAP service account credentials" \
-  --secret-string '{"username":"cn=admin,dc=authplatform,dc=com","password":"admin"}' \
+  --secret-string "file://$LDAP_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret $CLI_ARGS \
   --secret-id "auth-platform/auth-service/ldap-credentials" \
-  --secret-string '{"username":"cn=admin,dc=authplatform,dc=com","password":"admin"}'
+  --secret-string "file://$LDAP_SECRET_FILE"
 echo "  [OK] auth-platform/auth-service/ldap-credentials"
 
 # ─────────────────────────────────────────────

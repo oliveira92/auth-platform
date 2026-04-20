@@ -1,19 +1,21 @@
 # Local profile - overrides for Docker Compose / LocalStack environment
 
 spring:
-  config:
-    import: ""  # Disable Parameter Store for local — config comes from env vars and application.yml defaults
   cloud:
     aws:
       region:
         static: us-east-1
-      endpoint: http://localstack:4566
+      endpoint: ${AWS_ENDPOINT_OVERRIDE:http://localhost:4566}
       credentials:
         access-key: test
         secret-key: test
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/authplatform}
+    username: ${DB_USERNAME:authplatform}
+    password: ${DB_PASSWORD:authplatform}
 
 aws:
-  endpoint-override: http://localstack:4566
+  endpoint-override: ${AWS_ENDPOINT_OVERRIDE:http://localhost:4566}
   region: us-east-1
 
 logging:

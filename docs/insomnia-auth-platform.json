@@ -4,91 +4,70 @@
   "__export_date": "2026-04-17T00:00:00.000Z",
   "__export_source": "auth-platform:v1.0.0-MVP",
   "resources": [
-
     {
       "_id": "wrk_auth_platform",
       "_type": "workspace",
       "parentId": null,
       "name": "Auth Platform - Corporate Auth",
-      "description": "Collection completa da Auth Platform — autenticação LDAP/AD + RBAC corporativo.\n\nAmbientes disponíveis:\n- Local (Docker Compose)\n- Producao\n\nFluxo Portal XPTO incluído como exemplo de integração.",
+      "description": "Collection completa da Auth Platform — autenticação LDAP/AD + RBAC corporativo.\n\nAmbientes disponíveis:\n- Local (Docker Compose / execução pela IDE)\n- Producao\n\nNo estado atual, não há API Gateway local: use auth_url para autenticação e authz_url para autorização.\nFluxo Portal XPTO incluído como exemplo de integração.",
       "scope": "collection"
     },
-
     {
       "_id": "env_base",
       "_type": "environment",
       "parentId": "wrk_auth_platform",
       "name": "Base",
       "data": {
-        "base_url": "http://localhost:8080",
         "auth_url": "http://localhost:8081",
         "authz_url": "http://localhost:8082",
         "access_token": "",
         "refresh_token": "",
         "username": "john.doe",
         "password": "password123",
-        "app_id": "portal-xpto",
-        "app_client_id": "",
+        "app_id": "",
+        "app_client_id": "portal-xpto-a1b2c3d4",
         "role_id": ""
       },
       "color": null,
       "isPrivate": false
     },
-
     {
       "_id": "env_local",
       "_type": "environment",
       "parentId": "env_base",
       "name": "Local - Docker Compose",
       "data": {
-        "base_url": "http://localhost:8080",
         "auth_url": "http://localhost:8081",
         "authz_url": "http://localhost:8082",
         "username": "john.doe",
         "password": "password123",
-        "app_id": "portal-xpto"
+        "app_id": "",
+        "app_client_id": "portal-xpto-a1b2c3d4"
       },
       "color": "#28a745"
     },
-
     {
       "_id": "env_prod",
       "_type": "environment",
       "parentId": "env_base",
       "name": "Producao",
       "data": {
-        "base_url": "https://auth-platform.empresa.com",
-        "auth_url": "https://auth-platform.empresa.com",
-        "authz_url": "https://auth-platform.empresa.com",
+        "auth_url": "https://auth-service.empresa.com",
+        "authz_url": "https://authorization-service.empresa.com",
         "username": "seu.usuario",
         "password": "sua-senha-ad",
-        "app_id": "portal-xpto"
+        "app_id": "",
+        "app_client_id": "portal-xpto-a1b2c3d4"
       },
       "color": "#dc3545"
     },
-
     {
       "_id": "fld_health",
       "_type": "request_group",
       "parentId": "wrk_auth_platform",
       "name": "Health Checks",
-      "description": "Verificação de saúde de todos os serviços da plataforma."
+      "description": "Verificação de saúde dos serviços expostos localmente: auth-service e authorization-service."
     },
-
-    {
-      "_id": "req_health_gw",
-      "_type": "request",
-      "parentId": "fld_health",
-      "name": "API Gateway",
-      "method": "GET",
-      "url": "{{ base_url }}/actuator/health",
-      "body": {},
-      "headers": [],
-      "authentication": {},
-      "parameters": [],
-      "description": "Verifica saúde do API Gateway (porta 8080).\nEspera: {\"status\": \"UP\"}"
-    },
-
     {
       "_id": "req_health_auth",
       "_type": "request",
@@ -102,7 +81,6 @@
       "parameters": [],
       "description": "Verifica saúde do Auth Service diretamente (porta 8081).\nInclui status de LDAP e Redis."
     },
-
     {
       "_id": "req_health_authz",
       "_type": "request",
@@ -116,7 +94,6 @@
       "parameters": [],
       "description": "Verifica saúde do Authorization Service diretamente (porta 8082).\nInclui status do PostgreSQL."
     },
-
     {
       "_id": "fld_auth",
       "_type": "request_group",
@@ -124,234 +101,286 @@
       "name": "Autenticacao",
       "description": "Endpoints de autenticação: login LDAP, refresh de token, validação/introspection e logout.\n\nFLUXO:\n1. Login → salvar access_token e refresh_token no ambiente\n2. Usar access_token no header Authorization dos demais requests\n3. Quando expirar, chamar Refresh\n4. No final, chamar Logout"
     },
-
     {
       "_id": "req_login",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Login (LDAP/AD)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/login",
+      "url": "{{ auth_url }}/api/v1/auth/login",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"username\": \"{{ username }}\",\n  \"password\": \"{{ password }}\",\n  \"applicationId\": \"{{ app_id }}\"\n}"
+        "text": "{\n  \"username\": \"{{ username }}\",\n  \"password\": \"{{ password }}\",\n  \"applicationId\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "X-Correlation-ID", "value": "insomnia-test-login-001"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "X-Correlation-ID",
+          "value": "insomnia-test-login-001"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Autentica usuário via LDAP/AD e retorna par de tokens JWT (RS256).\n\nUsuários de teste disponíveis:\n- john.doe / password123 (grupo: engineers)\n- jane.smith / password123 (grupos: engineers, platform-team)\n- admin.user / admin123 (grupo: administrators)\n\nApos executar:\n1. Copie o valor de 'access_token' para a variavel de ambiente 'access_token'\n2. Copie o valor de 'refresh_token' para a variavel de ambiente 'refresh_token'\n\nResposta esperada (200):\n{\n  \"access_token\": \"eyJ...\",\n  \"refresh_token\": \"eyJ...\",\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 900,\n  \"refresh_expires_in\": 86400\n}"
     },
-
     {
       "_id": "req_login_admin",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Login - Admin User",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/login",
+      "url": "{{ auth_url }}/api/v1/auth/login",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"username\": \"admin.user\",\n  \"password\": \"admin123\",\n  \"applicationId\": \"{{ app_id }}\"\n}"
+        "text": "{\n  \"username\": \"admin.user\",\n  \"password\": \"admin123\",\n  \"applicationId\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Login com o usuário administrador. Útil para testar permissões elevadas."
     },
-
     {
       "_id": "req_login_invalid",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Login - Credenciais Invalidas (NEGATIVO)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/login",
+      "url": "{{ auth_url }}/api/v1/auth/login",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"username\": \"john.doe\",\n  \"password\": \"senha-errada\",\n  \"applicationId\": \"{{ app_id }}\"\n}"
+        "text": "{\n  \"username\": \"john.doe\",\n  \"password\": \"senha-errada\",\n  \"applicationId\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Teste negativo: senha incorreta.\n\nEspera: 401 Unauthorized\n{\n  \"title\": \"Authentication Failed\",\n  \"status\": 401\n}"
     },
-
     {
       "_id": "req_login_empty",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Login - Body Invalido (NEGATIVO)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/login",
+      "url": "{{ auth_url }}/api/v1/auth/login",
       "body": {
         "mimeType": "application/json",
         "text": "{\n  \"username\": \"\",\n  \"password\": \"\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Teste negativo: campos obrigatórios vazios.\n\nEspera: 400 Bad Request com lista de erros de validação."
     },
-
     {
       "_id": "req_validate",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Validar Token (Introspection)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/validate",
+      "url": "{{ auth_url }}/api/v1/auth/validate",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Valida um access token e retorna suas informações (RFC 7662).\n\nUso principal: serviços que precisam validar tokens sem implementar lógica JWT.\n\nResposta esperada (token válido):\n{\n  \"active\": true,\n  \"sub\": \"john.doe\",\n  \"roles\": [\"ROLE_ENGINEERS\"],\n  \"groups\": [\"engineers\"],\n  \"exp\": 1745000000\n}\n\nResposta (token inválido/expirado):\n{ \"active\": false }"
     },
-
     {
       "_id": "req_validate_invalid",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Validar Token - Token Invalido (NEGATIVO)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/validate",
+      "url": "{{ auth_url }}/api/v1/auth/validate",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer token.invalido.aqui"}
+        {
+          "name": "Authorization",
+          "value": "Bearer token.invalido.aqui"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Teste negativo: token JWT malformado.\n\nEspera: 200 com {\"active\": false}"
     },
-
     {
       "_id": "req_refresh",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Refresh Token",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/refresh",
+      "url": "{{ auth_url }}/api/v1/auth/refresh",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"refresh_token\": \"{{ refresh_token }}\",\n  \"application_id\": \"{{ app_id }}\"\n}"
+        "text": "{\n  \"refresh_token\": \"{{ refresh_token }}\",\n  \"application_id\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Renova o access token usando um refresh token válido.\n\nIMPORTANTE: Rotação automática — o refresh token atual é REVOGADO e um NOVO par é emitido.\nAtualize as variáveis access_token e refresh_token após executar.\n\nEspera: 200 com novo par de tokens\nEspera em refresh expirado/revogado: 401"
     },
-
     {
       "_id": "req_logout",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Logout (Revogar Token Atual)",
       "method": "DELETE",
-      "url": "{{ base_url }}/api/v1/auth/logout",
+      "url": "{{ auth_url }}/api/v1/auth/logout",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Revoga o access token atual (logout da sessão corrente).\n\nApos executar, chamar o endpoint de Validar Token com o mesmo token deve retornar {\"active\": false}.\n\nEspera: 204 No Content"
     },
-
     {
       "_id": "req_logout_all",
       "_type": "request",
       "parentId": "fld_auth",
       "name": "Logout Total (Revogar Todos os Tokens)",
       "method": "DELETE",
-      "url": "{{ base_url }}/api/v1/auth/logout/all",
+      "url": "{{ auth_url }}/api/v1/auth/logout/all",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"},
-        {"name": "X-Username", "value": "{{ username }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        },
+        {
+          "name": "X-Username",
+          "value": "{{ username }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Revoga TODOS os tokens do usuário (logout de todas as sessões/dispositivos).\n\nCaso de uso: usuário reporta dispositivo perdido — invalida todas as sessões ativas.\n\nEspera: 204 No Content"
     },
-
     {
       "_id": "fld_authz",
       "_type": "request_group",
       "parentId": "wrk_auth_platform",
       "name": "Autorizacao (RBAC)",
-      "description": "Endpoints de verificação de permissões e roles do usuário.\nRequer token válido no header Authorization."
+      "description": "Endpoints de verificação de permissões e roles do usuário.\nRequer token válido no header Authorization.\n\nObservação: permissões e associações role-permission ainda não têm API pública; requests que esperam allowed=true dependem de seed/migração administrativa."
     },
-
     {
       "_id": "req_check_permission",
       "_type": "request",
       "parentId": "fld_authz",
       "name": "Verificar Permissao",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/check",
+      "url": "{{ authz_url }}/api/v1/authorization/check",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "{{ app_id }}", "description": "ID da aplicação registrada"},
-        {"name": "resource", "value": "beneficios", "description": "Recurso a ser acessado"},
-        {"name": "action", "value": "read", "description": "Ação: read, write, delete, admin"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}",
+          "description": "ID da aplicação registrada"
+        },
+        {
+          "name": "resource",
+          "value": "beneficios",
+          "description": "Recurso a ser acessado"
+        },
+        {
+          "name": "action",
+          "value": "read",
+          "description": "Ação: read, write, delete, admin"
+        }
       ],
-      "description": "Verifica se o usuário tem permissão para uma ação específica em um recurso.\n\nO Gateway propaga o username via header X-Username a partir do JWT.\n\nResposta esperada:\n{\n  \"allowed\": true,\n  \"username\": \"john.doe\",\n  \"applicationId\": \"portal-xpto\",\n  \"resource\": \"beneficios\",\n  \"action\": \"read\"\n}"
+      "description": "Verifica se o usuário tem permissão para uma ação específica em um recurso.\n\nO authorization-service valida o Bearer token diretamente e extrai o username do claim sub.\nCom permissions/role_permissions populadas, pode retornar allowed=true. Sem seed de permissões, retorna allowed=false."
     },
-
     {
       "_id": "req_check_admin",
       "_type": "request",
       "parentId": "fld_authz",
       "name": "Verificar Permissao - Admin (NEGATIVO para user comum)",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/check",
+      "url": "{{ authz_url }}/api/v1/authorization/check",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "{{ app_id }}"},
-        {"name": "resource", "value": "configuracoes"},
-        {"name": "action", "value": "write"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        },
+        {
+          "name": "resource",
+          "value": "configuracoes"
+        },
+        {
+          "name": "action",
+          "value": "write"
+        }
       ],
-      "description": "Teste de permissão de admin para um usuário comum.\n\nCom john.doe (apenas ROLE_ENGINEERS):\nEspera: {\"allowed\": false}\n\nCom admin.user:\nEspera: {\"allowed\": true}"
+      "description": "Teste de permissão de admin.\n\nCom john.doe, espera-se allowed=false. Com admin.user, allowed=true somente se a role administrativa já tiver permissões vinculadas via seed/migração."
     },
-
     {
       "_id": "req_get_permissions",
       "_type": "request",
       "parentId": "fld_authz",
       "name": "Listar Permissoes do Usuario",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/permissions",
+      "url": "{{ authz_url }}/api/v1/authorization/permissions",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "{{ app_id }}"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        }
       ],
-      "description": "Retorna todas as roles e permissões do usuário para uma aplicação específica.\n\nUso: frontend usa para montar menu dinâmico baseado nas permissões.\n\nResposta esperada:\n{\n  \"username\": \"john.doe\",\n  \"applicationId\": \"portal-xpto\",\n  \"roles\": [\"XPTO_USER\"],\n  \"permissions\": [\"beneficios:read\", \"perfil:read\"]\n}"
+      "description": "Retorna todas as roles e permissões do usuário para uma aplicação específica.\n\nUso: frontend usa para montar menu dinâmico baseado nas permissões.\nEnquanto não houver API de associação de permissões a roles, permissions pode vir vazio mesmo com roles atribuídas."
     },
-
     {
       "_id": "fld_apps",
       "_type": "request_group",
@@ -359,63 +388,74 @@
       "name": "Gestao de Aplicacoes",
       "description": "Auto-serviço: registro e gerenciamento de aplicações que consomem a Auth Platform.\n\nQualquer time pode registrar sua aplicação e receber um clientId."
     },
-
     {
       "_id": "req_register_app",
       "_type": "request",
       "parentId": "fld_apps",
       "name": "Registrar Aplicacao",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/applications",
+      "url": "{{ authz_url }}/api/v1/applications",
       "body": {
         "mimeType": "application/json",
         "text": "{\n  \"name\": \"portal-xpto\",\n  \"description\": \"Portal corporativo de gestao de RH e beneficios\",\n  \"ownerTeam\": \"time-rh\",\n  \"allowedRoles\": [\n    \"ROLE_ENGINEERS\",\n    \"ROLE_PLATFORM_TEAM\",\n    \"ROLE_ADMINISTRATORS\"\n  ]\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Registra uma nova aplicação na Auth Platform (self-service).\n\nSalve o 'id' e 'clientId' retornados na resposta nas variáveis de ambiente:\n- app_id = valor do campo 'id'\n- app_client_id = valor do campo 'clientId'\n\nResposta esperada (201):\n{\n  \"id\": \"uuid\",\n  \"name\": \"portal-xpto\",\n  \"clientId\": \"portal-xpto-a1b2c3d4\",\n  \"status\": \"ACTIVE\",\n  ...\n}"
     },
-
     {
       "_id": "req_update_app",
       "_type": "request",
       "parentId": "fld_apps",
       "name": "Atualizar Aplicacao",
       "method": "PUT",
-      "url": "{{ base_url }}/api/v1/applications/{{ app_id }}",
+      "url": "{{ authz_url }}/api/v1/applications/{{ app_id }}",
       "body": {
         "mimeType": "application/json",
         "text": "{\n  \"name\": \"portal-xpto\",\n  \"description\": \"Portal corporativo de gestao de RH, beneficios e folha de pagamento\",\n  \"ownerTeam\": \"time-rh\",\n  \"allowedRoles\": [\n    \"ROLE_ENGINEERS\",\n    \"ROLE_PLATFORM_TEAM\",\n    \"ROLE_ADMINISTRATORS\",\n    \"ROLE_RH_TEAM\"\n  ]\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Atualiza dados de uma aplicação existente.\n\nRequer: app_id configurado no ambiente (obtido no Registrar Aplicacao)."
     },
-
     {
       "_id": "req_deactivate_app",
       "_type": "request",
       "parentId": "fld_apps",
       "name": "Desativar Aplicacao",
       "method": "DELETE",
-      "url": "{{ base_url }}/api/v1/applications/{{ app_id }}",
+      "url": "{{ authz_url }}/api/v1/applications/{{ app_id }}",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
-      "description": "Desativa uma aplicação (status INACTIVE).\n\nAplicações desativas não podem mais fazer login nem verificar permissões.\n\nEspera: 204 No Content\n\nATENCAO: Use com cuidado em ambiente de producao."
+      "description": "Desativa uma aplicação (status INACTIVE).\n\nAplicações desativadas não podem mais fazer login nem verificar permissões.\n\nEspera: 204 No Content\n\nATENCAO: Use com cuidado em ambiente de producao."
     },
-
     {
       "_id": "fld_roles",
       "_type": "request_group",
@@ -423,281 +463,336 @@
       "name": "Gestao de Roles",
       "description": "Criação de roles, atribuição e revogação para usuários.\nRoles são sempre vinculadas a uma aplicação específica."
     },
-
     {
       "_id": "req_create_role",
       "_type": "request",
       "parentId": "fld_roles",
       "name": "Criar Role",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/roles",
+      "url": "{{ authz_url }}/api/v1/roles",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"name\": \"XPTO_USER\",\n  \"description\": \"Usuario padrao do Portal XPTO com acesso a beneficios\",\n  \"applicationId\": \"{{ app_id }}\",\n  \"permissionIds\": []\n}"
+        "text": "{\n  \"name\": \"XPTO_USER\",\n  \"description\": \"Usuario padrao do Portal XPTO\",\n  \"applicationId\": \"{{ app_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
-      "description": "Cria uma nova role vinculada a uma aplicação.\n\nSalve o 'id' retornado na variavel 'role_id'.\n\nRoles sugeridas para Portal XPTO:\n- XPTO_USER: acesso básico a benefícios\n- XPTO_RH: gestão de folha de pagamento\n- XPTO_ADMIN: configurações e administração"
+      "description": "Cria uma nova role vinculada a uma aplicação.\n\nSalve o id retornado na variavel role_id.\nEste endpoint ainda não associa permissões; use seed/migração administrativa até existir API própria."
     },
-
     {
       "_id": "req_assign_role",
       "_type": "request",
       "parentId": "fld_roles",
       "name": "Atribuir Role a Usuario",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/roles/{{ role_id }}/assignments",
+      "url": "{{ authz_url }}/api/v1/roles/{{ role_id }}/assignments",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"username\": \"{{ username }}\",\n  \"applicationId\": \"{{ app_id }}\",\n  \"assignedBy\": \"admin.user\"\n}"
+        "text": "{\n  \"username\": \"{{ username }}\",\n  \"applicationId\": \"{{ app_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "Atribui uma role a um usuário para uma aplicação específica.\n\nRequer role_id configurado no ambiente."
     },
-
     {
       "_id": "req_revoke_role",
       "_type": "request",
       "parentId": "fld_roles",
       "name": "Revogar Role de Usuario",
       "method": "DELETE",
-      "url": "{{ base_url }}/api/v1/roles/{{ role_id }}/assignments/{{ username }}",
+      "url": "{{ authz_url }}/api/v1/roles/{{ role_id }}/assignments",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "{{ app_id }}"}
+        {
+          "name": "username",
+          "value": "{{ username }}"
+        },
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        }
       ],
       "description": "Remove a atribuição de uma role de um usuário.\n\nEspera: 204 No Content"
     },
-
     {
       "_id": "req_list_roles",
       "_type": "request",
       "parentId": "fld_roles",
       "name": "Listar Roles da Aplicacao",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/roles",
+      "url": "{{ authz_url }}/api/v1/roles",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "{{ app_id }}"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        }
       ],
       "description": "Lista todas as roles criadas para uma aplicação."
     },
-
     {
       "_id": "fld_xpto",
       "_type": "request_group",
       "parentId": "wrk_auth_platform",
-      "name": "Portal XPTO - Fluxo Completo",
-      "description": "Fluxo end-to-end de integração do Portal XPTO com a Auth Platform.\n\nEXECUTE NESTA ORDEM:\n1. [XPTO-01] Registrar Aplicacao Portal XPTO\n2. [XPTO-02] Login usuario john.doe\n3. [XPTO-03] Validar Token Recebido\n4. [XPTO-04] Verificar Acesso ao Menu Beneficios\n5. [XPTO-05] Verificar Acesso ao Menu Folha (deve falhar para john.doe)\n6. [XPTO-06] Login como admin e verificar acesso a Configuracoes\n7. [XPTO-07] Renovar Token (Refresh)\n8. [XPTO-08] Logout\n9. [XPTO-09] Tentar usar token revogado (deve falhar)"
+      "name": "Portal XPTO - Fluxo de Consumo",
+      "description": "Fluxo de consumo do Portal XPTO com a Auth Platform.\n\nPRE-REQUISITOS PARA CHECKS allowed=true:\n- Execute [XPTO-01] e salve id em app_id e clientId em app_client_id.\n- Crie roles na pasta Gestao de Roles e salve role_id.\n- Atribua a role ao usuario.\n- Popule permissions e role_permissions via seed/migracao/script administrativo, pois ainda nao existe API publica para isso.\n\nEXECUTE NESTA ORDEM:\n1. [XPTO-01] Registrar Aplicacao Portal XPTO\n2. [XPTO-02] Login usuario john.doe\n3. [XPTO-03] Validar Token Recebido\n4. [XPTO-04] Verificar Acesso ao Menu Beneficios\n5. [XPTO-05] Verificar Acesso ao Menu Folha (deve falhar para john.doe)\n6. [XPTO-06] Login como admin e verificar acesso a Configuracoes\n7. [XPTO-07] Renovar Token (Refresh)\n8. [XPTO-08] Logout\n9. [XPTO-09] Tentar usar token revogado (deve falhar)"
     },
-
     {
       "_id": "req_xpto_01",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-01] Registrar Portal XPTO",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/applications",
+      "url": "{{ authz_url }}/api/v1/applications",
       "body": {
         "mimeType": "application/json",
         "text": "{\n  \"name\": \"portal-xpto\",\n  \"description\": \"Portal corporativo de gestao de RH, beneficios e folha de pagamento do grupo XPTO\",\n  \"ownerTeam\": \"time-rh-xpto\",\n  \"allowedRoles\": [\n    \"ROLE_ENGINEERS\",\n    \"ROLE_PLATFORM_TEAM\",\n    \"ROLE_ADMINISTRATORS\"\n  ]\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"},
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
-      "description": "PASSO 1: O time do Portal XPTO registra sua aplicação na Auth Platform.\n\nOnboarding self-service: feito uma única vez.\nSalve o 'clientId' retornado — ele identifica o portal na plataforma.\n\nEspera: 201 Created"
+      "description": "PASSO 1: O time do Portal XPTO registra sua aplicação na Auth Platform.\n\nOnboarding self-service: feito uma única vez.\nSalve o id retornado em app_id para chamadas RBAC. Salve o clientId retornado em app_client_id para o fluxo de login.\n\nEspera: 201 Created"
     },
-
     {
       "_id": "req_xpto_02",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-02] Usuario faz Login no Portal",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/login",
+      "url": "{{ auth_url }}/api/v1/auth/login",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"username\": \"john.doe\",\n  \"password\": \"password123\",\n  \"applicationId\": \"portal-xpto\"\n}"
+        "text": "{\n  \"username\": \"john.doe\",\n  \"password\": \"password123\",\n  \"applicationId\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "PASSO 2: Usuário clica em 'Entrar' no Portal XPTO.\n\nO Portal chama este endpoint com as credenciais do AD informadas pelo usuário.\nReceberá access_token (15min) e refresh_token (24h).\n\nO Portal armazena o access_token em memória e o refresh_token em httpOnly cookie.\n\nSalve os tokens retornados nas variáveis de ambiente."
     },
-
     {
       "_id": "req_xpto_03",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-03] Portal Valida Token Recebido",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/validate",
+      "url": "{{ auth_url }}/api/v1/auth/validate",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "PASSO 3: Após receber o token, o backend do Portal valida que é legítimo.\n\nNa prática, o backend pode fazer isto:\n  a) Chamando este endpoint (mais simples, sem dependência de biblioteca JWT)\n  b) Validando localmente com a public key RSA (mais performático)\n\nEspera: {\"active\": true, \"sub\": \"john.doe\", \"roles\": [\"ROLE_ENGINEERS\", ...]}"
     },
-
     {
       "_id": "req_xpto_04",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-04] Portal Verifica Acesso: Menu Beneficios",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/check",
+      "url": "{{ authz_url }}/api/v1/authorization/check",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "portal-xpto"},
-        {"name": "resource", "value": "beneficios"},
-        {"name": "action", "value": "read"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        },
+        {
+          "name": "resource",
+          "value": "beneficios"
+        },
+        {
+          "name": "action",
+          "value": "read"
+        }
       ],
-      "description": "PASSO 4: Ao carregar o menu, o Portal verifica se john.doe pode acessar 'Beneficios'.\n\nComo john.doe é ROLE_ENGINEERS e XPTO_USER tem permissão beneficios:read:\nEspera: {\"allowed\": true}\n\nO Portal mostra o item 'Beneficios' no menu."
+      "description": "PASSO 4: Ao carregar o menu, o Portal verifica se john.doe pode acessar Beneficios.\n\nCom permissions/role_permissions populadas para XPTO_USER, espera-se allowed=true.\nSem seed de permissões, o comportamento correto do estado atual é allowed=false."
     },
-
     {
       "_id": "req_xpto_05",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-05] Portal Verifica Acesso: Menu Folha (NEGATIVO)",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/check",
+      "url": "{{ authz_url }}/api/v1/authorization/check",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "portal-xpto"},
-        {"name": "resource", "value": "folha"},
-        {"name": "action", "value": "read"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        },
+        {
+          "name": "resource",
+          "value": "folha"
+        },
+        {
+          "name": "action",
+          "value": "read"
+        }
       ],
       "description": "PASSO 5: Portal verifica se john.doe pode acessar 'Folha de Pagamento'.\n\nComo john.doe não tem a role XPTO_RH:\nEspera: {\"allowed\": false}\n\nO Portal OCULTA o item 'Folha de Pagamento' no menu para este usuário."
     },
-
     {
       "_id": "req_xpto_06",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-06] Admin Verifica Acesso: Configuracoes",
       "method": "GET",
-      "url": "{{ base_url }}/api/v1/authorization/check",
+      "url": "{{ authz_url }}/api/v1/authorization/check",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}",
-          "description": "Use o token do admin.user aqui"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}",
+          "description": "Use o token do admin.user aqui"
+        }
       ],
       "authentication": {},
       "parameters": [
-        {"name": "applicationId", "value": "portal-xpto"},
-        {"name": "resource", "value": "configuracoes"},
-        {"name": "action", "value": "write"}
+        {
+          "name": "applicationId",
+          "value": "{{ app_id }}"
+        },
+        {
+          "name": "resource",
+          "value": "configuracoes"
+        },
+        {
+          "name": "action",
+          "value": "write"
+        }
       ],
-      "description": "PASSO 6: Teste com admin.user.\n\nFaca login com admin.user primeiro (req_login_admin), atualize access_token no ambiente.\n\nEspera: {\"allowed\": true}"
+      "description": "PASSO 6: Teste com admin.user.\n\nFaca login com admin.user primeiro (req_login_admin), atualize access_token no ambiente.\nEspera allowed=true somente se a role administrativa tiver permissões vinculadas via seed/migração."
     },
-
     {
       "_id": "req_xpto_07",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-07] Portal Renova Token (Refresh)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/refresh",
+      "url": "{{ auth_url }}/api/v1/auth/refresh",
       "body": {
         "mimeType": "application/json",
-        "text": "{\n  \"refresh_token\": \"{{ refresh_token }}\",\n  \"application_id\": \"portal-xpto\"\n}"
+        "text": "{\n  \"refresh_token\": \"{{ refresh_token }}\",\n  \"application_id\": \"{{ app_client_id }}\"\n}"
       },
       "headers": [
-        {"name": "Content-Type", "value": "application/json"}
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "PASSO 7: O access_token expirou (15 min). O Portal usa o refresh_token para obter novos tokens SEM pedir a senha novamente ao usuário.\n\nO Portal executa este refresh automaticamente em background (ex: 60s antes da expiração).\n\nIMPORTANTE: Atualize as variáveis access_token e refresh_token após executar.\n\nEspera: 200 com novo par de tokens"
     },
-
     {
       "_id": "req_xpto_08",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-08] Usuario faz Logout do Portal",
       "method": "DELETE",
-      "url": "{{ base_url }}/api/v1/auth/logout",
+      "url": "{{ auth_url }}/api/v1/auth/logout",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "PASSO 8: Usuário clica em 'Sair' no Portal XPTO.\n\nO Portal:\n1. Chama este endpoint para revogar o token\n2. Limpa access_token e refresh_token do armazenamento local\n3. Redireciona para a tela de login\n\nEspera: 204 No Content"
     },
-
     {
       "_id": "req_xpto_09",
       "_type": "request",
       "parentId": "fld_xpto",
       "name": "[XPTO-09] Tentar Usar Token Revogado (NEGATIVO)",
       "method": "POST",
-      "url": "{{ base_url }}/api/v1/auth/validate",
+      "url": "{{ auth_url }}/api/v1/auth/validate",
       "body": {},
       "headers": [
-        {"name": "Authorization", "value": "Bearer {{ access_token }}",
-          "description": "O mesmo token usado no logout anterior"}
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ access_token }}",
+          "description": "O mesmo token usado no logout anterior"
+        }
       ],
       "authentication": {},
       "parameters": [],
       "description": "PASSO 9: Verificação de segurança — token revogado não deve ser válido.\n\nApós o logout do passo anterior, o token está na blacklist do Redis.\n\nEspera: {\"active\": false}\n\nSe retornar 'active: true', há um problema na revogação!"
     },
-
     {
       "_id": "fld_swagger",
       "_type": "request_group",
       "parentId": "wrk_auth_platform",
       "name": "Documentacao (Swagger)",
-      "description": "Links para as interfaces Swagger UI de cada serviço."
+      "description": "Links para as interfaces Swagger UI diretas de cada serviço."
     },
-
-    {
-      "_id": "req_swagger_gw",
-      "_type": "request",
-      "parentId": "fld_swagger",
-      "name": "Swagger UI Agregado (via Gateway)",
-      "method": "GET",
-      "url": "{{ base_url }}/swagger-ui.html",
-      "body": {},
-      "headers": [],
-      "authentication": {},
-      "parameters": [],
-      "description": "Swagger UI agregado no API Gateway. Mostra APIs de auth-service e authorization-service."
-    },
-
     {
       "_id": "req_swagger_auth",
       "_type": "request",
@@ -711,7 +806,6 @@
       "parameters": [],
       "description": "Swagger UI direto do Auth Service na porta 8081."
     },
-
     {
       "_id": "req_swagger_authz",
       "_type": "request",
@@ -725,6 +819,5 @@
       "parameters": [],
       "description": "Swagger UI direto do Authorization Service na porta 8082."
     }
-
   ]
 }
