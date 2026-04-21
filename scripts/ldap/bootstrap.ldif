@@ -27,12 +27,12 @@ sn: Doe
 givenName: John
 mail: john.doe@authplatform.com
 displayName: John Doe
-department: Engineering
+ou: Engineering
 title: Senior Engineer
 uidNumber: 1001
 gidNumber: 1001
 homeDirectory: /home/john.doe
-userPassword: {CLEARTEXT}password123
+userPassword: {SSHA}m5/uvdsqiNAvOaXY/IyAYizjQHZ2TQsC
 
 dn: uid=jane.smith,ou=users,dc=authplatform,dc=com
 objectClass: inetOrgPerson
@@ -44,12 +44,12 @@ sn: Smith
 givenName: Jane
 mail: jane.smith@authplatform.com
 displayName: Jane Smith
-department: Platform
+ou: Platform
 title: Platform Engineer
 uidNumber: 1002
 gidNumber: 1001
 homeDirectory: /home/jane.smith
-userPassword: {CLEARTEXT}password123
+userPassword: {SSHA}m5/uvdsqiNAvOaXY/IyAYizjQHZ2TQsC
 
 dn: uid=admin.user,ou=users,dc=authplatform,dc=com
 objectClass: inetOrgPerson
@@ -61,12 +61,12 @@ sn: User
 givenName: Admin
 mail: admin@authplatform.com
 displayName: Admin User
-department: IT
+ou: IT
 title: System Administrator
 uidNumber: 1000
 gidNumber: 1000
 homeDirectory: /home/admin.user
-userPassword: {CLEARTEXT}admin123
+userPassword: {SSHA}HSQ38TTSZrAoKssEWfhqfv7nyG3bLILM
 
 # ── Groups ─────────────────────────────────────────────────────────────
 

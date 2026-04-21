@@ -91,8 +91,12 @@ public class LdapUserAdapter implements LdapUserPort {
                 ldapProperties.getGroupSearchBase(),
                 filter.toString(),
                 (AttributesMapper<String>) attrs -> {
-                    Object cn = attrs.get(ldapProperties.getGroupRoleAttribute());
-                    return cn != null ? cn.toString() : null;
+                    try {
+                        var attr = attrs.get(ldapProperties.getGroupRoleAttribute());
+                        return attr != null && attr.get() != null ? attr.get().toString() : null;
+                    } catch (NamingException e) {
+                        return null;
+                    }
                 }
             ).stream().filter(Objects::nonNull).toList();
         } catch (Exception e) {

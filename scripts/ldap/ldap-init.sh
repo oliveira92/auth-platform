@@ -8,4 +8,10 @@ ldapadd -c -x \
   -D "cn=admin,dc=authplatform,dc=com" \
   -w admin \
   -f /ldap/bootstrap.ldif
+
+ldapmodify -c -x \
+  -H ldap://openldap:389 \
+  -D "cn=admin,dc=authplatform,dc=com" \
+  -w admin \
+  -f /ldap/reconcile-users.ldif
 exit 0

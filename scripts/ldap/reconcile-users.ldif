@@ -1,0 +1,23 @@
+dn: uid=john.doe,ou=users,dc=authplatform,dc=com
+changetype: modify
+replace: userPassword
+userPassword: {SSHA}m5/uvdsqiNAvOaXY/IyAYizjQHZ2TQsC
+-
+replace: ou
+ou: Engineering
+
+dn: uid=jane.smith,ou=users,dc=authplatform,dc=com
+changetype: modify
+replace: userPassword
+userPassword: {SSHA}m5/uvdsqiNAvOaXY/IyAYizjQHZ2TQsC
+-
+replace: ou
+ou: Platform
+
+dn: uid=admin.user,ou=users,dc=authplatform,dc=com
+changetype: modify
+replace: userPassword
+userPassword: {SSHA}HSQ38TTSZrAoKssEWfhqfv7nyG3bLILM
+-
+replace: ou
+ou: IT

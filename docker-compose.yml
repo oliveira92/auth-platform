@@ -99,6 +99,7 @@ services:
     entrypoint: ["/bin/sh", "/ldap/ldap-init.sh"]
     volumes:
       - ./scripts/ldap/bootstrap.ldif:/ldap/bootstrap.ldif:ro
+      - ./scripts/ldap/reconcile-users.ldif:/ldap/reconcile-users.ldif:ro
       - ./scripts/ldap/ldap-init.sh:/ldap/ldap-init.sh:ro
     depends_on:
       openldap:
@@ -204,4 +205,3 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
-
