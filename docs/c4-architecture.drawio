@@ -43,7 +43,7 @@
         <mxCell id="rel-auth-sm" value="Lê chaves RSA e&lt;br&gt;credenciais LDAP" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;endArrow=open;endFill=0;strokeColor=#666666;fontSize=10;" parent="1" source="system-auth" target="ext-sm" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="rel-app-auth" value="Auto-serviço: autentica&lt;br&gt;usuários e valida tokens" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=10;" parent="1" source="ext-app" target="system-auth" edge="1">
+        <mxCell id="rel-app-auth" value="Auto-serviço: login,&lt;br&gt;JWKS e validação" style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=10;" parent="1" source="ext-app" target="system-auth" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
@@ -60,7 +60,7 @@
         <mxCell id="boundary" value="Auth Platform" style="swimlane;startSize=40;fillColor=none;strokeColor=#052E56;strokeWidth=2;fontSize=14;fontStyle=1;dashed=0;rounded=1;" parent="1" vertex="1">
           <mxGeometry x="320" y="80" width="900" height="680" as="geometry" />
         </mxCell>
-        <mxCell id="container-auth" value="&lt;b&gt;Auth Service&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Container: Spring Boot]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Autenticação LDAP/AD.&lt;br&gt;Emissão e validação de&lt;br&gt;tokens JWT (RS256).&lt;br&gt;Porta: 8081" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#438DD5;fontColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="boundary" vertex="1">
+        <mxCell id="container-auth" value="&lt;b&gt;Auth Service&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Container: Spring Boot]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Autenticação LDAP/AD.&lt;br&gt;Emissão JWT RS256 com kid.&lt;br&gt;JWKS público para apps.&lt;br&gt;Porta: 8081" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#438DD5;fontColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="boundary" vertex="1">
           <mxGeometry x="100" y="300" width="220" height="150" as="geometry" />
         </mxCell>
         <mxCell id="container-authz" value="&lt;b&gt;Authorization Service&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Container: Spring Boot]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Gerenciamento RBAC.&lt;br&gt;Registro de aplicações.&lt;br&gt;Verificação de permissões.&lt;br&gt;Porta: 8082" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#438DD5;fontColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="boundary" vertex="1">
@@ -81,7 +81,7 @@
         <mxCell id="ext2-client" value="&lt;b&gt;Aplicação Cliente&lt;/b&gt;&lt;br&gt;&lt;i&gt;[External System]&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#999999;fontColor=#ffffff;strokeColor=#6B6B6B;fontSize=10;" parent="1" vertex="1">
           <mxGeometry x="80" y="280" width="180" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="r1" value="HTTP :8081&lt;br&gt;login, refresh, validate" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=9;" parent="1" source="ext2-client" target="container-auth" edge="1">
+        <mxCell id="r1" value="HTTP :8081&lt;br&gt;login, refresh, validate, jwks" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#666666;fontSize=9;" parent="1" source="ext2-client" target="container-auth" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="r2" value="HTTP :8082&lt;br&gt;RBAC e self-service" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#0066CC;fontSize=9;" parent="1" source="ext2-client" target="container-authz" edge="1">
@@ -119,7 +119,7 @@
         <mxCell id="layer-web" value="Infrastructure: Web" style="swimlane;startSize=30;fillColor=#EBF5FB;strokeColor=#85C1E9;fontSize=12;fontStyle=2;rounded=1;" parent="auth-boundary" vertex="1">
           <mxGeometry x="20" y="60" width="300" height="200" as="geometry" />
         </mxCell>
-        <mxCell id="comp-controller" value="&lt;b&gt;AuthController&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Component: REST Controller]&lt;/i&gt;&lt;br&gt;&lt;br&gt;POST /login&lt;br&gt;POST /refresh&lt;br&gt;POST /validate&lt;br&gt;DELETE /logout" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-web" vertex="1">
+        <mxCell id="comp-controller" value="&lt;b&gt;AuthController + MetadataController&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Component: REST Controller]&lt;/i&gt;&lt;br&gt;&lt;br&gt;POST /login&lt;br&gt;POST /refresh&lt;br&gt;POST /validate&lt;br&gt;DELETE /logout&lt;br&gt;GET /.well-known/jwks.json" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-web" vertex="1">
           <mxGeometry x="20" y="50" width="260" height="130" as="geometry" />
         </mxCell>
         <mxCell id="layer-app" value="Application: Use Cases" style="swimlane;startSize=30;fillColor=#EBF5FB;strokeColor=#85C1E9;fontSize=12;fontStyle=2;rounded=1;" parent="auth-boundary" vertex="1">
@@ -143,7 +143,7 @@
         <mxCell id="comp-ldap" value="&lt;b&gt;LdapUserAdapter&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Adapter: out]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Spring LDAP Template&lt;br&gt;Autenticação BIND + busca&lt;br&gt;de usuário e grupos" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-infra" vertex="1">
           <mxGeometry x="20" y="50" width="180" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="comp-jwt" value="&lt;b&gt;JwtTokenAdapter&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Adapter: out]&lt;/i&gt;&lt;br&gt;&lt;br&gt;JJWT RS256&lt;br&gt;Geração e parsing&lt;br&gt;de tokens JWT" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-infra" vertex="1">
+        <mxCell id="comp-jwt" value="&lt;b&gt;JwtTokenAdapter + JwtKeyProvider&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Adapter: out]&lt;/i&gt;&lt;br&gt;&lt;br&gt;JJWT RS256&lt;br&gt;Geração com kid&lt;br&gt;e publicação JWKS" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-infra" vertex="1">
           <mxGeometry x="220" y="50" width="180" height="120" as="geometry" />
         </mxCell>
         <mxCell id="comp-redis-adapter" value="&lt;b&gt;RedisTokenStorage&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Adapter: out]&lt;/i&gt;&lt;br&gt;&lt;br&gt;Redis Template&lt;br&gt;TTL automático&lt;br&gt;Blacklist revogados" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#85BBF0;strokeColor=#5D82B5;fontSize=10;" parent="layer-infra" vertex="1">

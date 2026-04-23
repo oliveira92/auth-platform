@@ -336,10 +336,18 @@ curl -X POST http://localhost:8082/api/v1/applications \
   }'
 
 # Resposta:
-# { "id": "app-uuid-001", "clientId": "portal-xpto-a1b2c3d4", "status": "ACTIVE" }
+# {
+#   "id": "app-uuid-001",
+#   "clientId": "portal-xpto-a1b2c3d4",
+#   "issuer": "https://auth.empresa.com",
+#   "jwksUri": "https://auth.empresa.com/.well-known/jwks.json",
+#   "introspectionUrl": "https://auth.empresa.com/api/v1/auth/validate",
+#   "tokenAlgorithm": "RS256",
+#   "status": "ACTIVE"
+# }
 ```
 
-Use o `id` retornado (`app-uuid-001` no exemplo) como `applicationId` nas chamadas de RBAC. Use o `clientId` como identificador público da aplicação no fluxo de login.
+Use o `id` retornado (`app-uuid-001` no exemplo) como `applicationId` nas chamadas de RBAC. Use o `clientId` como identificador público da aplicação no fluxo de login. Guarde também `issuer`, `jwksUri` e `introspectionUrl` para o backend da aplicação consumidora.
 
 **Passo 2 — Criar as roles da aplicação:**
 ```bash
@@ -448,6 +456,26 @@ async function login(username, password) {
 }
 ```
 
+### 4.2.1 Auto-serviço da Chave Pública
+
+Após o onboarding, o backend do Portal XPTO não precisa pedir acesso ao AWS Secrets Manager. Ele usa o `jwksUri` devolvido no cadastro da aplicação para obter a chave pública RSA ativa.
+
+```javascript
+async function loadSigningKeys(jwksUri) {
+  const response = await fetch(jwksUri);
+  if (!response.ok) {
+    throw new Error('Nao foi possivel carregar o JWKS da Auth Platform');
+  }
+
+  const { keys } = await response.json();
+  return keys;
+}
+```
+
+O JWT emitido pelo `auth-service` carrega `kid` no header. O backend da aplicação usa esse `kid` para escolher a chave correta no JWKS e validar o token localmente.
+
+Estado atual: o JWKS publica a chave pública ativa. A plataforma já prepara o contrato de `kid`, mas rotação suave com múltiplas chaves ativas simultâneas ainda deve ser evoluída antes de um processo de rotação sem janela de transição.
+
 ---
 
 ### 4.3 Fluxo de Acesso a Recurso Protegido
@@ -462,6 +490,10 @@ NAVEGADOR               PORTAL XPTO API         AUTH PLATFORM
     │  <access_token>         │                        │
     ├───────────────────────►│                        │
     │                        │                        │
+    │                        │ Backend valida assinatura via JWKS:
+    │                        │ GET :8081/.well-known/jwks.json
+    │                        │ kid do token -> chave RSA correta
+    │                        │
     │                        │ Backend verifica permissão:
     │                        │ GET :8082/api/v1/authorization/check
     │                        │ Authorization: Bearer <access_token>
@@ -506,7 +538,7 @@ public class FolhaController {
 }
 ```
 
-O `AuthorizationClient` chama `GET http://authorization-service:8082/api/v1/authorization/check` passando o Bearer token recebido da requisição original.
+O backend primeiro valida o JWT localmente via `jwksUri` do onboarding e depois o `AuthorizationClient` chama `GET http://authorization-service:8082/api/v1/authorization/check` passando o Bearer token recebido da requisição original.
 Use o `id` da aplicação registrada no parâmetro `applicationId`; o `clientId` fica restrito ao login/refresh no `auth-service`.
 
 ---
@@ -653,7 +685,8 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 1. Execute `Health Checks / Auth Service` e `Health Checks / Authorization Service` — ambos devem retornar `{"status": "UP"}`
 2. Execute `Autenticacao / Login (LDAP/AD)` — copie o `access_token` para a variável de ambiente
 3. Execute `Autenticacao / Validar Token` — deve retornar `{"active": true}`
-4. Execute `Portal XPTO - Fluxo de Consumo` na ordem dos passos XPTO-01 a XPTO-09. Antes dos checks que esperam `allowed:true`, crie/atribua as roles pela pasta `Gestao de Roles` e popule `permissions`/`role_permissions` via seed, migração ou script administrativo.
+4. Execute `Auth Metadata / JWKS Publico` para confirmar o endpoint auto-serviço da chave pública.
+5. Execute `Portal XPTO - Fluxo de Consumo` na ordem dos passos XPTO-01 a XPTO-09. Antes dos checks que esperam `allowed:true`, crie/atribua as roles pela pasta `Gestao de Roles` e popule `permissions`/`role_permissions` via seed, migração ou script administrativo.
 
 ### Pastas da Collection
 
@@ -661,6 +694,7 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 |-------|----------|
 | `Health Checks` | 2 requests de verificação de saúde (Auth, Authorization) |
 | `Autenticacao` | Login, Refresh, Validate, Logout (+ casos negativos) |
+| `Auth Metadata` | Endpoint público JWKS para validação local dos tokens |
 | `Autorizacao (RBAC)` | Check permission, listar permissões |
 | `Gestao de Aplicacoes` | Registrar, atualizar, desativar aplicações |
 | `Gestao de Roles` | Criar roles, atribuir/revogar para usuários |

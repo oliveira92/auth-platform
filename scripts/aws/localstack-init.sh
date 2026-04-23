@@ -123,12 +123,31 @@ echo "  [OK] auth-service jwt expiration"
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/auth-service/auth.jwt.refresh-token-expiration-seconds" \
   --value "86400" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.jwt.issuer" \
+  --value "auth-platform" --type String --overwrite
 
 # Authorization Service parameters
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/authorization-service/server.port" \
   --value "8082" --type String --overwrite
 echo "  [OK] /config/auth-platform/authorization-service/server.port"
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.jwt.issuer" \
+  --value "auth-platform" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.platform.issuer" \
+  --value "auth-platform" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.platform.jwks-uri" \
+  --value "http://localhost:8081/.well-known/jwks.json" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.platform.introspection-url" \
+  --value "http://localhost:8081/api/v1/auth/validate" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.platform.token-algorithm" \
+  --value "RS256" --type String --overwrite
+echo "  [OK] authorization-service auth platform metadata"
 
 echo ""
 echo "======================================================"

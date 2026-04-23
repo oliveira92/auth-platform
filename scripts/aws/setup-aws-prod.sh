@@ -70,6 +70,11 @@ read_with_default LDAP_USER_SEARCH_FILTER "LDAP user search filter" "(sAMAccount
 read_with_default LDAP_GROUP_SEARCH_BASE "LDAP group search base" "ou=Groups"
 read_with_default LDAP_GROUP_SEARCH_FILTER "LDAP group search filter" "(member={0})"
 read_required DB_URL "Authorization DB JDBC URL (ex: jdbc:postgresql://db:5432/authplatform)"
+read_with_default JWT_ISSUER "JWT issuer/public auth base URL" "https://auth.empresa.com"
+AUTH_BASE_URL="${JWT_ISSUER%/}"
+read_with_default AUTH_JWKS_URI "JWKS URI exposed to consumer applications" "$AUTH_BASE_URL/.well-known/jwks.json"
+read_with_default AUTH_INTROSPECTION_URL "Introspection URL exposed to consumer applications" "$AUTH_BASE_URL/api/v1/auth/validate"
+read_with_default AUTH_TOKEN_ALGORITHM "JWT token algorithm" "RS256"
 
 # Prompt for LDAP credentials
 read -r -p "LDAP Service Account DN: " LDAP_DN
@@ -181,11 +186,29 @@ aws ssm put-parameter --region "$REGION" --overwrite \
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "/config/auth-platform/auth-service/auth.jwt.refresh-token-expiration-seconds" \
   --value "86400" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/auth-service/auth.jwt.issuer" \
+  --value "${JWT_ISSUER}" --type String
 
 # Authorization Service
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "/config/auth-platform/authorization-service/spring.datasource.url" \
   --value "${DB_URL}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/authorization-service/auth.jwt.issuer" \
+  --value "${JWT_ISSUER}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/authorization-service/auth.platform.issuer" \
+  --value "${JWT_ISSUER}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/authorization-service/auth.platform.jwks-uri" \
+  --value "${AUTH_JWKS_URI}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/authorization-service/auth.platform.introspection-url" \
+  --value "${AUTH_INTROSPECTION_URL}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "/config/auth-platform/authorization-service/auth.platform.token-algorithm" \
+  --value "${AUTH_TOKEN_ALGORITHM}" --type String
 
 echo ""
 echo "AWS setup complete for environment: $ENV"

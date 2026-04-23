@@ -9,7 +9,7 @@
       "_type": "workspace",
       "parentId": null,
       "name": "Auth Platform - Corporate Auth",
-      "description": "Collection completa da Auth Platform — autenticação LDAP/AD + RBAC corporativo.\n\nAmbientes disponíveis:\n- Local (Docker Compose / execução pela IDE)\n- Producao\n\nNo estado atual, não há API Gateway local: use auth_url para autenticação e authz_url para autorização.\nFluxo Portal XPTO incluído como exemplo de integração.",
+      "description": "Collection completa da Auth Platform — autenticação LDAP/AD + RBAC corporativo.\n\nAmbientes disponíveis:\n- Local (Docker Compose / execução pela IDE)\n- Producao\n\nNo estado atual, não há API Gateway local: use auth_url para autenticação e authz_url para autorização.\nO JWKS público do auth-service permite validação local de JWT sem acesso direto ao Secrets Manager.\nFluxo Portal XPTO incluído como exemplo de integração.",
       "scope": "collection"
     },
     {
@@ -205,7 +205,7 @@
       ],
       "authentication": {},
       "parameters": [],
-      "description": "Valida um access token e retorna suas informações (RFC 7662).\n\nUso principal: serviços que precisam validar tokens sem implementar lógica JWT.\n\nResposta esperada (token válido):\n{\n  \"active\": true,\n  \"sub\": \"john.doe\",\n  \"roles\": [\"ROLE_ENGINEERS\"],\n  \"groups\": [\"engineers\"],\n  \"exp\": 1745000000\n}\n\nResposta (token inválido/expirado):\n{ \"active\": false }"
+      "description": "Valida um access token e retorna suas informações (RFC 7662).\n\nUso principal: serviços que precisam confirmar revogação imediata ou evitar dependência de biblioteca JWT.\nPara validação local de assinatura, prefira o JWKS público em /.well-known/jwks.json.\n\nResposta esperada (token válido):\n{\n  \"active\": true,\n  \"sub\": \"john.doe\",\n  \"roles\": [\"ROLE_ENGINEERS\"],\n  \"groups\": [\"engineers\"],\n  \"exp\": 1745000000\n}\n\nResposta (token inválido/expirado):\n{ \"active\": false }"
     },
     {
       "_id": "req_validate_invalid",
@@ -285,6 +285,26 @@
       "authentication": {},
       "parameters": [],
       "description": "Revoga TODOS os tokens do usuário (logout de todas as sessões/dispositivos).\n\nCaso de uso: usuário reporta dispositivo perdido — invalida todas as sessões ativas.\n\nEspera: 204 No Content"
+    },
+    {
+      "_id": "fld_auth_metadata",
+      "_type": "request_group",
+      "parentId": "wrk_auth_platform",
+      "name": "Auth Metadata",
+      "description": "Metadados públicos do auth-service para aplicações consumidoras.\n\nFluxo recomendado:\n1. Registrar a aplicação em Gestao de Aplicacoes\n2. Guardar issuer, jwksUri e introspectionUrl retornados\n3. Usar jwksUri para validar JWT localmente\n4. Reservar /validate para casos de revogação imediata"
+    },
+    {
+      "_id": "req_jwks",
+      "_type": "request",
+      "parentId": "fld_auth_metadata",
+      "name": "JWKS Publico",
+      "method": "GET",
+      "url": "{{ auth_url }}/.well-known/jwks.json",
+      "body": {},
+      "headers": [],
+      "authentication": {},
+      "parameters": [],
+      "description": "Expõe a chave pública RSA ativa em formato JWKS.\n\nAplicações consumidoras usam este endpoint para validação local do JWT:\n- o token vem com kid no header\n- o backend encontra a chave correspondente no JWKS\n- a validação de assinatura ocorre sem acesso direto ao AWS Secrets Manager\n\nResposta esperada (200):\n{\n  \"keys\": [\n    {\n      \"kty\": \"RSA\",\n      \"use\": \"sig\",\n      \"alg\": \"RS256\",\n      \"kid\": \"...\",\n      \"n\": \"...\",\n      \"e\": \"AQAB\"\n    }\n  ]\n}"
     },
     {
       "_id": "fld_authz",
@@ -411,7 +431,7 @@
       ],
       "authentication": {},
       "parameters": [],
-      "description": "Registra uma nova aplicação na Auth Platform (self-service).\n\nSalve o 'id' e 'clientId' retornados na resposta nas variáveis de ambiente:\n- app_id = valor do campo 'id'\n- app_client_id = valor do campo 'clientId'\n\nResposta esperada (201):\n{\n  \"id\": \"uuid\",\n  \"name\": \"portal-xpto\",\n  \"clientId\": \"portal-xpto-a1b2c3d4\",\n  \"status\": \"ACTIVE\",\n  ...\n}"
+      "description": "Registra uma nova aplicação na Auth Platform (self-service).\n\nSalve os campos retornados na resposta:\n- app_id = valor do campo 'id'\n- app_client_id = valor do campo 'clientId'\n- issuer = emissor esperado no claim iss\n- jwksUri = endpoint público para validação local do JWT\n- introspectionUrl = endpoint para validação com revogação imediata\n\nResposta esperada (201):\n{\n  \"id\": \"uuid\",\n  \"name\": \"portal-xpto\",\n  \"clientId\": \"portal-xpto-a1b2c3d4\",\n  \"issuer\": \"https://auth.empresa.com\",\n  \"jwksUri\": \"https://auth.empresa.com/.well-known/jwks.json\",\n  \"introspectionUrl\": \"https://auth.empresa.com/api/v1/auth/validate\",\n  \"tokenAlgorithm\": \"RS256\",\n  \"status\": \"ACTIVE\",\n  ...\n}"
     },
     {
       "_id": "req_update_app",
@@ -593,7 +613,7 @@
       ],
       "authentication": {},
       "parameters": [],
-      "description": "PASSO 1: O time do Portal XPTO registra sua aplicação na Auth Platform.\n\nOnboarding self-service: feito uma única vez.\nSalve o id retornado em app_id para chamadas RBAC. Salve o clientId retornado em app_client_id para o fluxo de login.\n\nEspera: 201 Created"
+      "description": "PASSO 1: O time do Portal XPTO registra sua aplicação na Auth Platform.\n\nOnboarding self-service: feito uma única vez.\nSalve o id retornado em app_id para chamadas RBAC. Salve o clientId retornado em app_client_id para o fluxo de login. Guarde também issuer, jwksUri e introspectionUrl para o backend consumidor.\n\nEspera: 201 Created"
     },
     {
       "_id": "req_xpto_02",
@@ -632,7 +652,7 @@
       ],
       "authentication": {},
       "parameters": [],
-      "description": "PASSO 3: Após receber o token, o backend do Portal valida que é legítimo.\n\nNa prática, o backend pode fazer isto:\n  a) Chamando este endpoint (mais simples, sem dependência de biblioteca JWT)\n  b) Validando localmente com a public key RSA (mais performático)\n\nEspera: {\"active\": true, \"sub\": \"john.doe\", \"roles\": [\"ROLE_ENGINEERS\", ...]}"
+      "description": "PASSO 3: Após receber o token, o backend do Portal valida que é legítimo.\n\nNa prática, o backend pode fazer isto:\n  a) Chamando este endpoint (mais simples, com verificação de revogação)\n  b) Validando localmente com o JWKS público do auth-service (mais performático)\n\nNo modo local, use Auth Metadata / JWKS Publico para inspecionar a chave pública ativa.\n\nEspera: {\"active\": true, \"sub\": \"john.doe\", \"roles\": [\"ROLE_ENGINEERS\", ...]}"
     },
     {
       "_id": "req_xpto_04",

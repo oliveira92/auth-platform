@@ -8,6 +8,7 @@ import com.authplatform.auth.domain.port.in.RefreshTokenCommand;
 import com.authplatform.auth.domain.port.in.RefreshTokenUseCase;
 import com.authplatform.auth.domain.port.in.RevokeTokenUseCase;
 import com.authplatform.auth.domain.port.in.ValidateTokenUseCase;
+import com.authplatform.auth.infrastructure.config.JwtProperties;
 import com.authplatform.auth.infrastructure.web.dto.LoginRequest;
 import com.authplatform.auth.infrastructure.web.dto.LoginResponse;
 import com.authplatform.auth.infrastructure.web.dto.RefreshTokenRequest;
@@ -39,6 +40,7 @@ public class AuthController {
     private final RefreshTokenUseCase refreshTokenUseCase;
     private final ValidateTokenUseCase validateTokenUseCase;
     private final RevokeTokenUseCase revokeTokenUseCase;
+    private final JwtProperties jwtProperties;
 
     @PostMapping("/login")
     @Operation(summary = "Authenticate user via LDAP/AD and issue JWT tokens")
@@ -106,7 +108,7 @@ public class AuthController {
         return ResponseEntity.ok(new TokenIntrospectResponse(
             true,
             t.username(),
-            "auth-platform",
+            jwtProperties.getIssuer(),
             t.expiresAt().getEpochSecond(),
             t.issuedAt().getEpochSecond(),
             t.type().name(),

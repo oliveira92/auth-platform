@@ -46,6 +46,11 @@ auth:
   aws:
     secrets:
       jwt-public-key-name: ${AWS_JWT_PUBLIC_KEY_SECRET:auth-platform/shared/jwt-public-key}
+  platform:
+    issuer: ${AUTH_ISSUER:${JWT_ISSUER:auth-platform}}
+    jwks-uri: ${AUTH_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    introspection-url: ${AUTH_INTROSPECTION_URL:http://localhost:8081/api/v1/auth/validate}
+    token-algorithm: ${AUTH_TOKEN_ALGORITHM:RS256}
 
 aws:
   region: ${AWS_REGION:us-east-1}

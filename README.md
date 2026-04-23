@@ -289,9 +289,15 @@ No profile `local`, os defaults usam `localhost` para Redis, PostgreSQL, OpenLDA
 │   ├── auth.ldap.group-search-base                = ou=Groups
 │   ├── auth.ldap.group-search-filter              = (member={0})
 │   ├── auth.jwt.access-token-expiration-seconds   = 900
-│   └── auth.jwt.refresh-token-expiration-seconds  = 86400
+│   ├── auth.jwt.refresh-token-expiration-seconds  = 86400
+│   └── auth.jwt.issuer                            = https://auth.empresa.com
 └── authorization-service/
-    └── spring.datasource.url                      = jdbc:postgresql://db:5432/authplatform
+    ├── spring.datasource.url                      = jdbc:postgresql://db:5432/authplatform
+    ├── auth.jwt.issuer                            = https://auth.empresa.com
+    ├── auth.platform.issuer                       = https://auth.empresa.com
+    ├── auth.platform.jwks-uri                     = https://auth.empresa.com/.well-known/jwks.json
+    ├── auth.platform.introspection-url            = https://auth.empresa.com/api/v1/auth/validate
+    └── auth.platform.token-algorithm              = RS256
 ```
 
 ### Estrutura no Secrets Manager
@@ -329,6 +335,9 @@ export LDAP_USER_SEARCH_FILTER="(sAMAccountName={0})"
 export LDAP_GROUP_SEARCH_BASE="ou=Groups"
 export LDAP_GROUP_SEARCH_FILTER="(member={0})"
 export DB_URL="jdbc:postgresql://db.empresa.com:5432/authplatform"
+export JWT_ISSUER="https://auth.empresa.com"
+export AUTH_JWKS_URI="https://auth.empresa.com/.well-known/jwks.json"
+export AUTH_INTROSPECTION_URL="https://auth.empresa.com/api/v1/auth/validate"
 
 # Configurar AWS (interativo)
 ./scripts/aws/setup-aws-prod.sh \
@@ -337,7 +346,7 @@ export DB_URL="jdbc:postgresql://db.empresa.com:5432/authplatform"
   --keys-dir ./keys
 ```
 
-O script cria ou atualiza os segredos no Secrets Manager usando JSON válido para chaves PEM multiline e grava os parâmetros LDAP/JWT/PostgreSQL no Parameter Store. Durante a execução, confirme os parâmetros sugeridos e informe a conta de serviço LDAP.
+O script cria ou atualiza os segredos no Secrets Manager usando JSON válido para chaves PEM multiline e grava os parâmetros LDAP/JWT/PostgreSQL e os metadados de onboarding (`issuer`, `jwksUri`, `introspectionUrl`) no Parameter Store. Durante a execução, confirme os parâmetros sugeridos e informe a conta de serviço LDAP.
 
 ### IAM Permissions necessárias
 
@@ -375,6 +384,30 @@ Os serviços precisam de permissões IAM (via EC2 instance profile, ECS Task Rol
 Os endpoints de autenticação estão no `auth-service` (porta **8081**) e os de autorização no `authorization-service` (porta **8082**).
 
 ### Autenticação
+
+#### `GET /.well-known/jwks.json`
+
+Expõe a chave pública RSA ativa em formato JWKS para validação local de JWT por aplicações consumidoras.
+
+**Response 200:**
+```json
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "uM4q...",
+      "n": "base64url-modulus",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+Use este endpoint como mecanismo padrão de auto-serviço para validação local. O acesso direto ao AWS Secrets Manager continua reservado aos serviços da plataforma e a integrações internas controladas.
+
+---
 
 #### `POST /api/v1/auth/login`
 
@@ -534,9 +567,20 @@ Registra uma nova aplicação (self-service).
   "name": "meu-servico",
   "clientId": "meu-servico-a1b2c3d4",
   "status": "ACTIVE",
+  "issuer": "https://auth.empresa.com",
+  "jwksUri": "https://auth.empresa.com/.well-known/jwks.json",
+  "introspectionUrl": "https://auth.empresa.com/api/v1/auth/validate",
+  "tokenAlgorithm": "RS256",
   ...
 }
 ```
+
+Os campos `issuer`, `jwksUri`, `introspectionUrl` e `tokenAlgorithm` fazem parte do onboarding auto-serviço da aplicação consumidora. Com eles, o time já sai do cadastro com tudo o que precisa para:
+
+- autenticar usuários via `auth-service`
+- validar JWT localmente via `jwksUri`
+- usar introspection apenas quando precisar confirmar revogação imediata
+- chamar o RBAC com o `id` da aplicação
 
 ---
 
@@ -549,23 +593,34 @@ Registra uma nova aplicação (self-service).
 │           Sua Aplicação                      │
 │                                             │
 │  1. Registrar via POST /api/v1/applications │
-│  2. Redirecionar login → Auth Platform      │
-│  3. Validar token localmente com public key │
+│  2. Receber clientId + issuer + jwksUri     │
+│  3. Redirecionar login → Auth Platform      │
+│  4. Validar token localmente via JWKS       │
 │     ou via POST /api/v1/auth/validate       │
-│  4. Verificar permissão via                 │
+│  5. Verificar permissão via                 │
 │     GET /api/v1/authorization/check         │
 └─────────────────────────────────────────────┘
 ```
 
 ### Validação Local de Token (recomendado para performance)
 
-Sua aplicação pode validar tokens **localmente** usando a chave pública RSA sem chamar o Auth Service:
+Sua aplicação pode validar tokens **localmente** usando a chave pública RSA sem chamar o Auth Service. O fluxo recomendado é:
+
+1. Registrar a aplicação via `POST /api/v1/applications`
+2. Guardar o `jwksUri` retornado no onboarding
+3. Buscar o JWKS público em `GET /.well-known/jwks.json`
+4. Escolher a chave pelo `kid` presente no header do JWT
+5. Validar assinatura, `iss`, `exp` e claims necessárias localmente
+
+Exemplo simplificado:
 
 ```java
-// 1. Obter public key do AWS Secrets Manager: auth-platform/shared/jwt-public-key
-// 2. Validar com JJWT:
+// 1. Buscar o JWKS do onboarding (jwksUri)
+// 2. Resolver a RSA public key correspondente ao kid do token
+// 3. Validar com JJWT:
 Claims claims = Jwts.parser()
     .verifyWith(publicKey)   // RSA public key
+    .requireIssuer("https://auth.empresa.com")
     .build()
     .parseSignedClaims(bearerToken)
     .getPayload();
@@ -573,6 +628,8 @@ Claims claims = Jwts.parser()
 String username = claims.getSubject();
 List<String> roles = claims.get("roles", List.class);
 ```
+
+> **Serviços internos da plataforma:** podem continuar lendo a chave pública do AWS Secrets Manager conforme o padrão já existente. O JWKS público foi adicionado para eliminar dependência de acesso direto a segredos no onboarding das aplicações consumidoras.
 
 ### Validação de JWT por Serviço
 
@@ -592,6 +649,7 @@ Cada serviço valida o `Authorization: Bearer <token>` diretamente. O username �
 ### Tokens JWT RS256
 
 - **Algoritmo:** RSA-2048 com SHA-256 (RS256)
+- **Header:** cada JWT emitido inclui `kid`, derivado da chave pública ativa, para seleção da chave no JWKS
 - **Access Token:** 15 minutos de validade (configurável)
 - **Refresh Token:** 24 horas de validade, com **rotação** (cada uso emite novo par)
 - **Revogação:** Tokens são blacklistados no Redis com TTL até a expiração
@@ -600,8 +658,10 @@ Cada serviço valida o `Authorization: Bearer <token>` diretamente. O username �
 
 - Chaves RSA **nunca** são commitadas no repositório (`.gitignore`)
 - Em produção, chaves ficam no **AWS Secrets Manager**
+- O `auth-service` expõe a chave pública ativa em `GET /.well-known/jwks.json`
+- Aplicações consumidoras devem preferir `jwksUri` do onboarding em vez de acesso direto ao Secrets Manager
 - Rotação de chaves: gere novas chaves, atualize o Secrets Manager e reinicie os serviços
-- Chave pública pode ser distribuída para validação local (sem chamada ao Auth Service)
+- **Estado atual da rotação:** o JWKS expõe a chave ativa com `kid`, mas ainda não há suporte a múltiplas chaves públicas simultâneas para rotação suave sem janela de transição. Essa evolução permanece no roadmap.
 
 ### Dados Sensíveis
 

@@ -3,6 +3,7 @@ package com.authplatform.authorization.infrastructure.web.controller;
 import com.authplatform.authorization.domain.model.Application;
 import com.authplatform.authorization.domain.port.in.RegisterApplicationCommand;
 import com.authplatform.authorization.domain.port.in.RegisterApplicationUseCase;
+import com.authplatform.authorization.infrastructure.config.AuthPlatformMetadataProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,10 +27,11 @@ import java.util.List;
 public class ApplicationController {
 
     private final RegisterApplicationUseCase registerApplicationUseCase;
+    private final AuthPlatformMetadataProperties authPlatformMetadataProperties;
 
     @PostMapping
     @Operation(summary = "Register a new application for authentication/authorization")
-    public ResponseEntity<Application> registerApplication(
+    public ResponseEntity<ApplicationResponse> registerApplication(
             @Valid @RequestBody RegisterApplicationRequest request) {
 
         Application app = registerApplicationUseCase.register(
@@ -40,12 +42,13 @@ public class ApplicationController {
                 request.allowedRoles()
             )
         );
-        return ResponseEntity.status(HttpStatus.CREATED).body(app);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApplicationResponse.from(app, authPlatformMetadataProperties));
     }
 
     @PutMapping("/{applicationId}")
     @Operation(summary = "Update an existing application")
-    public ResponseEntity<Application> updateApplication(
+    public ResponseEntity<ApplicationResponse> updateApplication(
             @PathVariable String applicationId,
             @Valid @RequestBody RegisterApplicationRequest request) {
 
@@ -58,7 +61,7 @@ public class ApplicationController {
                 request.allowedRoles()
             )
         );
-        return ResponseEntity.ok(app);
+        return ResponseEntity.ok(ApplicationResponse.from(app, authPlatformMetadataProperties));
     }
 
     @DeleteMapping("/{applicationId}")
