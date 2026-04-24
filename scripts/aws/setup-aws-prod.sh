@@ -1,30 +1,52 @@
 #!/bin/bash
 # Production AWS Setup Script
 # Creates Secrets Manager and Parameter Store entries in AWS
-# Usage: ./setup-aws-prod.sh --region us-east-1 --env production --keys-dir ./keys
+# Usage: ./setup-aws-prod.sh --region us-east-1 --env production --keys-dir ./keys/prod
 
 set -e
 
 REGION="us-east-1"
 ENV="production"
 KEYS_DIR="./keys"
+SECRET_PREFIX="auth-platform"
+PARAMETER_PREFIX="/config/auth-platform"
+NAMESPACE_BY_ENV=false
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     --region) REGION="$2"; shift ;;
     --env) ENV="$2"; shift ;;
     --keys-dir) KEYS_DIR="$2"; shift ;;
+    --secret-prefix) SECRET_PREFIX="$2"; shift ;;
+    --parameter-prefix) PARAMETER_PREFIX="$2"; shift ;;
+    --namespace-by-env) NAMESPACE_BY_ENV=true ;;
     *) echo "Unknown param: $1"; exit 1 ;;
   esac
   shift
 done
 
+SECRET_PREFIX="${SECRET_PREFIX%/}"
+PARAMETER_PREFIX="${PARAMETER_PREFIX%/}"
+
+if [ "$NAMESPACE_BY_ENV" = "true" ]; then
+  SECRET_PREFIX="$SECRET_PREFIX/$ENV"
+  PARAMETER_PREFIX="$PARAMETER_PREFIX/$ENV"
+fi
+
+JWT_KEYS_SECRET_NAME="$SECRET_PREFIX/auth-service/jwt-keys"
+JWT_PUBLIC_KEY_SECRET_NAME="$SECRET_PREFIX/shared/jwt-public-key"
+LDAP_SECRET_NAME="$SECRET_PREFIX/auth-service/ldap-credentials"
+AUTH_SERVICE_PARAMETER_PREFIX="$PARAMETER_PREFIX/auth-service"
+AUTHORIZATION_SERVICE_PARAMETER_PREFIX="$PARAMETER_PREFIX/authorization-service"
+
 echo "Setting up AWS resources for environment: $ENV in region: $REGION"
+echo "Secrets prefix: $SECRET_PREFIX"
+echo "Parameter prefix: $PARAMETER_PREFIX"
 
 # Validate RSA keys exist
 if [ ! -f "$KEYS_DIR/private_key_pkcs8.pem" ] || [ ! -f "$KEYS_DIR/public_key.pem" ]; then
   echo "ERROR: RSA keys not found in $KEYS_DIR"
-  echo "Run: scripts/keys/generate-rsa-keys.sh --output-dir $KEYS_DIR"
+  echo "Run: scripts/keys/generate-rsa-keys.sh --env $ENV --output-dir $KEYS_DIR"
   exit 1
 fi
 
@@ -123,37 +145,37 @@ echo "Creating/updating Secrets Manager secrets..."
 
 aws secretsmanager create-secret \
   --region "$REGION" \
-  --name "auth-platform/auth-service/jwt-keys" \
+  --name "$JWT_KEYS_SECRET_NAME" \
   --description "JWT RSA Key Pair for auth-service [$ENV]" \
   --secret-string "file://$JWT_KEYS_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
-  --secret-id "auth-platform/auth-service/jwt-keys" \
+  --secret-id "$JWT_KEYS_SECRET_NAME" \
   --secret-string "file://$JWT_KEYS_SECRET_FILE"
 echo "  [OK] JWT keys secret"
 
 aws secretsmanager create-secret \
   --region "$REGION" \
-  --name "auth-platform/shared/jwt-public-key" \
+  --name "$JWT_PUBLIC_KEY_SECRET_NAME" \
   --description "JWT RSA Public Key for token validation [$ENV]" \
   --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
-  --secret-id "auth-platform/shared/jwt-public-key" \
+  --secret-id "$JWT_PUBLIC_KEY_SECRET_NAME" \
   --secret-string "file://$JWT_PUBLIC_KEY_SECRET_FILE"
 echo "  [OK] JWT public key secret"
 
 aws secretsmanager create-secret \
   --region "$REGION" \
-  --name "auth-platform/auth-service/ldap-credentials" \
+  --name "$LDAP_SECRET_NAME" \
   --description "LDAP service account credentials [$ENV]" \
   --secret-string "file://$LDAP_SECRET_FILE" \
   2>/dev/null || \
 aws secretsmanager update-secret \
   --region "$REGION" \
-  --secret-id "auth-platform/auth-service/ldap-credentials" \
+  --secret-id "$LDAP_SECRET_NAME" \
   --secret-string "file://$LDAP_SECRET_FILE"
 echo "  [OK] LDAP credentials secret"
 
@@ -163,52 +185,67 @@ echo "Creating/updating Parameter Store parameters..."
 
 # Auth Service
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.url" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.url" \
   --value "${LDAP_URL}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.base-dn" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.base-dn" \
   --value "${LDAP_BASE_DN}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.user-search-base" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.user-search-base" \
   --value "${LDAP_USER_SEARCH_BASE}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.user-search-filter" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.user-search-filter" \
   --value "${LDAP_USER_SEARCH_FILTER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.group-search-base" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.group-search-base" \
   --value "${LDAP_GROUP_SEARCH_BASE}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.ldap.group-search-filter" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.group-search-filter" \
   --value "${LDAP_GROUP_SEARCH_FILTER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.jwt.access-token-expiration-seconds" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.access-token-expiration-seconds" \
   --value "900" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.jwt.refresh-token-expiration-seconds" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.refresh-token-expiration-seconds" \
   --value "86400" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/auth-service/auth.jwt.issuer" \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.issuer" \
   --value "${JWT_ISSUER}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.jwt-secret-name" \
+  --value "${JWT_KEYS_SECRET_NAME}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.ldap-secret-name" \
+  --value "${LDAP_SECRET_NAME}" --type String
 
 # Authorization Service
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/spring.datasource.url" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/spring.datasource.url" \
   --value "${DB_URL}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/auth.jwt.issuer" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.jwt.issuer" \
   --value "${JWT_ISSUER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/auth.platform.issuer" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.issuer" \
   --value "${JWT_ISSUER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/auth.platform.jwks-uri" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.jwks-uri" \
   --value "${AUTH_JWKS_URI}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/auth.platform.introspection-url" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.introspection-url" \
   --value "${AUTH_INTROSPECTION_URL}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
-  --name "/config/auth-platform/authorization-service/auth.platform.token-algorithm" \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.token-algorithm" \
   --value "${AUTH_TOKEN_ALGORITHM}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.jwt-public-key-name" \
+  --value "${JWT_PUBLIC_KEY_SECRET_NAME}" --type String
 
 echo ""
 echo "AWS setup complete for environment: $ENV"
+if [ "$NAMESPACE_BY_ENV" = "true" ]; then
+  echo ""
+  echo "Configure service imports for this environment:"
+  echo "  auth-service SPRING_CONFIG_IMPORT=optional:aws-parameterstore:$AUTH_SERVICE_PARAMETER_PREFIX/"
+  echo "  authorization-service SPRING_CONFIG_IMPORT=optional:aws-parameterstore:$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/"
+fi

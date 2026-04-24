@@ -13,12 +13,13 @@ target/
 *.sw?
 
 ## Keys and Secrets (NEVER commit these!)
-keys/
+/keys/
 *.pem
 *.key
 *.p12
 *.jks
 *.pfx
+*.secret.json
 *.env
 .env*
 !.env.example

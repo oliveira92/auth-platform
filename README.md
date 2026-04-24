@@ -198,8 +198,11 @@ chmod +x scripts/**/*.sh
 ```
 
 Isso cria:
-- `keys/private_key_pkcs8.pem` — chave privada (NUNCA commitar!)
-- `keys/public_key.pem` — chave pública (pode ser compartilhada)
+- `keys/private_key_pkcs8.pem` — chave privada em PKCS#8 (NUNCA commitar!)
+- `keys/public_key.pem` — chave pública publicada no JWKS
+- `keys/jwt-keys.secret.json` — payload para o secret do `auth-service`
+- `keys/jwt-public-key.secret.json` — payload para o secret compartilhado de validação
+- `keys/key-metadata.json` — metadados não sensíveis, incluindo `kid` e fingerprint SHA-256
 
 > Para o fluxo `docker compose up -d`, este passo é opcional: o LocalStack executa `scripts/aws/localstack-init.sh` e gera um par de chaves local dentro do container se ainda não existir. O diretório `./keys` é útil para setup manual e para o script de produção.
 
@@ -324,29 +327,63 @@ auth-platform/auth-service/ldap-credentials
 ### Setup de Produção
 
 ```bash
-# Gerar chaves RSA
-./scripts/keys/generate-rsa-keys.sh --output-dir ./keys
+# Gerar chaves RSA localmente, uma vez por ambiente
+./scripts/keys/generate-rsa-keys.sh --env dev
+./scripts/keys/generate-rsa-keys.sh --env hom
+./scripts/keys/generate-rsa-keys.sh --env prod
 
-# Opcional: informe antes para o script sugerir como default
-export LDAP_URL="ldaps://ad.empresa.com:636"
+# Exemplo de envio do ambiente dev para AWS
+export LDAP_URL="ldaps://ad-dev.empresa.com:636"
 export LDAP_BASE_DN="dc=empresa,dc=com"
 export LDAP_USER_SEARCH_BASE="ou=Users"
 export LDAP_USER_SEARCH_FILTER="(sAMAccountName={0})"
 export LDAP_GROUP_SEARCH_BASE="ou=Groups"
 export LDAP_GROUP_SEARCH_FILTER="(member={0})"
-export DB_URL="jdbc:postgresql://db.empresa.com:5432/authplatform"
-export JWT_ISSUER="https://auth.empresa.com"
-export AUTH_JWKS_URI="https://auth.empresa.com/.well-known/jwks.json"
-export AUTH_INTROSPECTION_URL="https://auth.empresa.com/api/v1/auth/validate"
+export DB_URL="jdbc:postgresql://db-dev.empresa.com:5432/authplatform"
+export JWT_ISSUER="https://auth-dev.empresa.com"
+export AUTH_JWKS_URI="https://auth-dev.empresa.com/.well-known/jwks.json"
+export AUTH_INTROSPECTION_URL="https://auth-dev.empresa.com/api/v1/auth/validate"
 
 # Configurar AWS (interativo)
 ./scripts/aws/setup-aws-prod.sh \
   --region us-east-1 \
-  --env production \
-  --keys-dir ./keys
+  --env dev \
+  --keys-dir ./keys/dev
 ```
 
 O script cria ou atualiza os segredos no Secrets Manager usando JSON válido para chaves PEM multiline e grava os parâmetros LDAP/JWT/PostgreSQL e os metadados de onboarding (`issuer`, `jwksUri`, `introspectionUrl`) no Parameter Store. Durante a execução, confirme os parâmetros sugeridos e informe a conta de serviço LDAP.
+
+Se `dev`, `hom` e `prod` estiverem na mesma conta AWS, use namespace por ambiente para evitar sobrescrita de secrets e parâmetros:
+
+```bash
+./scripts/aws/setup-aws-prod.sh \
+  --region us-east-1 \
+  --env dev \
+  --keys-dir ./keys/dev \
+  --namespace-by-env
+```
+
+Nesse modo, os paths ficam assim:
+
+```text
+Secrets Manager:
+  auth-platform/dev/auth-service/jwt-keys
+  auth-platform/dev/shared/jwt-public-key
+
+Parameter Store:
+  /config/auth-platform/dev/auth-service/
+  /config/auth-platform/dev/authorization-service/
+```
+
+Configure cada serviço do ambiente com o import correspondente:
+
+```bash
+# auth-service dev
+SPRING_CONFIG_IMPORT=optional:aws-parameterstore:/config/auth-platform/dev/auth-service/
+
+# authorization-service dev
+SPRING_CONFIG_IMPORT=optional:aws-parameterstore:/config/auth-platform/dev/authorization-service/
+```
 
 ### IAM Permissions necessárias
 
