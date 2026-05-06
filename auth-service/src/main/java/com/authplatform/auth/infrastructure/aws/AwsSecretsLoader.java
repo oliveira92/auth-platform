@@ -52,13 +52,36 @@ public class AwsSecretsLoader {
         try {
             log.info("Loading LDAP credentials from AWS Secrets Manager: {}", ldapSecretName);
             String secretValue = getSecret(ldapSecretName);
-            Map<String, String> secrets = objectMapper.readValue(secretValue, Map.class);
-            ldapProperties.setUserDn(secrets.get("username"));
-            ldapProperties.setPassword(secrets.get("password"));
+            Map<String, Object> secrets = objectMapper.readValue(secretValue, Map.class);
+            ldapProperties.setUserDn(asString(secrets.get("username")));
+            ldapProperties.setPassword(asString(secrets.get("password")));
+            loadDomainLdapSecrets(secrets);
             log.info("LDAP credentials loaded successfully");
         } catch (Exception e) {
             throw new IllegalStateException("Failed to load LDAP credentials from AWS", e);
         }
+    }
+
+    private void loadDomainLdapSecrets(Map<String, Object> secrets) {
+        Object domainSecrets = secrets.get("domains");
+        if (!(domainSecrets instanceof Map<?, ?> domains)) {
+            return;
+        }
+
+        domains.forEach((domainKey, credentials) -> {
+            if (!(credentials instanceof Map<?, ?> domainCredentials)) {
+                return;
+            }
+
+            LdapProperties.Domain domain = ldapProperties.getDomains()
+                .computeIfAbsent(domainKey.toString(), ignored -> new LdapProperties.Domain());
+            domain.setUserDn(asString(domainCredentials.get("username")));
+            domain.setPassword(asString(domainCredentials.get("password")));
+        });
+    }
+
+    private String asString(Object value) {
+        return value == null ? null : value.toString();
     }
 
     private String getSecret(String secretName) {

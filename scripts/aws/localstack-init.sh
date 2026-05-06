@@ -126,6 +126,45 @@ aws ssm put-parameter $CLI_ARGS \
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/auth-service/auth.jwt.issuer" \
   --value "auth-platform" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.jwt.audience" \
+  --value "auth-platform-api" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.default-domain" \
+  --value "default" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.rate-limit.enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.rate-limit.window-seconds" \
+  --value "60" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.rate-limit.ip-limit" \
+  --value "120" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.rate-limit.application-limit" \
+  --value "600" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.audit.enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.audit.base-url" \
+  --value "http://audit-service:8083" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.cache.enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.cache.user-ttl-seconds" \
+  --value "300" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.cache.sync-enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.cache.sync-interval-ms" \
+  --value "300000" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/auth-service/auth.ldap.cache.sync-initial-delay-ms" \
+  --value "60000" --type String --overwrite
 
 # Authorization Service parameters
 aws ssm put-parameter $CLI_ARGS \
@@ -135,6 +174,9 @@ echo "  [OK] /config/auth-platform/authorization-service/server.port"
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/authorization-service/auth.jwt.issuer" \
   --value "auth-platform" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.jwt.audience" \
+  --value "auth-platform-api" --type String --overwrite
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/authorization-service/auth.platform.issuer" \
   --value "auth-platform" --type String --overwrite
@@ -147,7 +189,43 @@ aws ssm put-parameter $CLI_ARGS \
 aws ssm put-parameter $CLI_ARGS \
   --name "/config/auth-platform/authorization-service/auth.platform.token-algorithm" \
   --value "RS256" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.platform.token-audience" \
+  --value "auth-platform-api" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.rate-limit.enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.rate-limit.window-seconds" \
+  --value "60" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.rate-limit.ip-limit" \
+  --value "120" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.rate-limit.application-limit" \
+  --value "600" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.audit.enabled" \
+  --value "true" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/authorization-service/auth.audit.base-url" \
+  --value "http://audit-service:8083" --type String --overwrite
 echo "  [OK] authorization-service auth platform metadata"
+
+# Audit Service parameters
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/audit-service/server.port" \
+  --value "8083" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/audit-service/spring.datasource.url" \
+  --value "jdbc:mysql://mysql:3306/authplatform?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/audit-service/spring.datasource.username" \
+  --value "authplatform" --type String --overwrite
+aws ssm put-parameter $CLI_ARGS \
+  --name "/config/auth-platform/audit-service/spring.datasource.password" \
+  --value "authplatform" --type String --overwrite
+echo "  [OK] audit-service database metadata"
 
 echo ""
 echo "======================================================"

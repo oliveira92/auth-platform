@@ -12,8 +12,23 @@ public record Token(
     List<String> roles,
     List<String> groups,
     String applicationId,
-    String clientIp
+    String clientIp,
+    String ldapDomain
 ) {
+    public Token(
+        String tokenId,
+        String username,
+        TokenType type,
+        Instant issuedAt,
+        Instant expiresAt,
+        List<String> roles,
+        List<String> groups,
+        String applicationId,
+        String clientIp
+    ) {
+        this(tokenId, username, type, issuedAt, expiresAt, roles, groups, applicationId, clientIp, "default");
+    }
+
     public boolean isExpired() {
         return Instant.now().isAfter(expiresAt);
     }

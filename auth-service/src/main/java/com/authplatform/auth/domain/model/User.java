@@ -10,8 +10,21 @@ public record User(
     String department,
     List<String> groups,
     List<String> roles,
-    Map<String, String> attributes
+    Map<String, String> attributes,
+    String ldapDomain
 ) {
+    public User(
+        String username,
+        String email,
+        String displayName,
+        String department,
+        List<String> groups,
+        List<String> roles,
+        Map<String, String> attributes
+    ) {
+        this(username, email, displayName, department, groups, roles, attributes, "default");
+    }
+
     public boolean hasRole(String role) {
         return roles != null && roles.contains(role);
     }

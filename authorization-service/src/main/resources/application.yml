@@ -11,10 +11,10 @@ spring:
         access-key: ${AWS_ACCESS_KEY_ID:test}
         secret-key: ${AWS_SECRET_ACCESS_KEY:test}
   datasource:
-    url: ${DB_URL:jdbc:postgresql://postgres:5432/authplatform}
+    url: ${DB_URL:jdbc:mysql://mysql:3306/authplatform?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:authplatform}
     password: ${DB_PASSWORD:authplatform}
-    driver-class-name: org.postgresql.Driver
+    driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       pool-name: AuthorizationCP
       maximum-pool-size: 10
@@ -26,12 +26,23 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+        dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
 
 server:
   port: ${SERVER_PORT:8082}
@@ -43,6 +54,7 @@ auth:
   jwt:
     public-key: ${JWT_PUBLIC_KEY:}
     issuer: ${JWT_ISSUER:auth-platform}
+    audience: ${JWT_AUDIENCE:auth-platform-api}
   aws:
     secrets:
       jwt-public-key-name: ${AWS_JWT_PUBLIC_KEY_SECRET:auth-platform/shared/jwt-public-key}
@@ -51,6 +63,17 @@ auth:
     jwks-uri: ${AUTH_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
     introspection-url: ${AUTH_INTROSPECTION_URL:http://localhost:8081/api/v1/auth/validate}
     token-algorithm: ${AUTH_TOKEN_ALGORITHM:RS256}
+    token-audience: ${AUTH_TOKEN_AUDIENCE:${JWT_AUDIENCE:auth-platform-api}}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:60}
+    ip-limit: ${RATE_LIMIT_IP_LIMIT:120}
+    application-limit: ${RATE_LIMIT_APPLICATION_LIMIT:600}
+  audit:
+    enabled: ${AUDIT_ENABLED:false}
+    base-url: ${AUDIT_SERVICE_URL:http://localhost:8083}
+    connect-timeout-ms: ${AUDIT_CONNECT_TIMEOUT_MS:500}
+    read-timeout-ms: ${AUDIT_READ_TIMEOUT_MS:1000}
 
 aws:
   region: ${AWS_REGION:us-east-1}

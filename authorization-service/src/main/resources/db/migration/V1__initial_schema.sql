@@ -8,14 +8,16 @@ CREATE TABLE applications (
     client_id   VARCHAR(255) NOT NULL UNIQUE,
     status      VARCHAR(50)  NOT NULL DEFAULT 'ACTIVE',
     owner_team  VARCHAR(255),
-    created_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 );
 
 CREATE TABLE application_allowed_roles (
-    application_id VARCHAR(36)  NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    application_id VARCHAR(36)  NOT NULL,
     role_name      VARCHAR(255) NOT NULL,
-    PRIMARY KEY (application_id, role_name)
+    PRIMARY KEY (application_id, role_name),
+    CONSTRAINT fk_application_allowed_roles_application
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
 );
 
 CREATE TABLE permissions (
@@ -31,26 +33,36 @@ CREATE TABLE roles (
     id             VARCHAR(36)  PRIMARY KEY,
     name           VARCHAR(255) NOT NULL,
     description    TEXT,
-    application_id VARCHAR(36)  NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
-    created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    UNIQUE (name, application_id)
+    application_id VARCHAR(36)  NOT NULL,
+    created_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE (name, application_id),
+    CONSTRAINT fk_roles_application
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
 );
 
 CREATE TABLE role_permissions (
-    role_id       VARCHAR(36) NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id VARCHAR(36) NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    PRIMARY KEY (role_id, permission_id)
+    role_id       VARCHAR(36) NOT NULL,
+    permission_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    CONSTRAINT fk_role_permissions_role
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_role_permissions_permission
+        FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
 );
 
 CREATE TABLE user_role_assignments (
     id             VARCHAR(36)  PRIMARY KEY,
     username       VARCHAR(255) NOT NULL,
-    role_id        VARCHAR(36)  NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    application_id VARCHAR(36)  NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    role_id        VARCHAR(36)  NOT NULL,
+    application_id VARCHAR(36)  NOT NULL,
     assigned_by    VARCHAR(255),
-    assigned_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    expires_at     TIMESTAMP WITH TIME ZONE,
-    UNIQUE (username, role_id, application_id)
+    assigned_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    expires_at     DATETIME(6),
+    UNIQUE (username, role_id, application_id),
+    CONSTRAINT fk_user_role_assignments_role
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_role_assignments_application
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_user_role_username ON user_role_assignments(username);

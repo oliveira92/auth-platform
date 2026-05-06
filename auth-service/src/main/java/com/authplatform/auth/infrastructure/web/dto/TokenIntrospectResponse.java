@@ -34,9 +34,13 @@ public record TokenIntrospectResponse(
 
     @Schema(description = "Application identifier")
     @JsonProperty("application_id")
-    String applicationId
+    String applicationId,
+
+    @Schema(description = "LDAP/AD domain used to resolve the user")
+    @JsonProperty("ldap_domain")
+    String ldapDomain
 ) {
     public static TokenIntrospectResponse inactive() {
-        return new TokenIntrospectResponse(false, null, null, 0, 0, null, null, null, null);
+        return new TokenIntrospectResponse(false, null, null, 0, 0, null, null, null, null, null);
     }
 }

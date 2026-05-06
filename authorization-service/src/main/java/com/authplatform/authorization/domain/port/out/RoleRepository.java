@@ -10,5 +10,7 @@ public interface RoleRepository {
     Optional<Role> findById(String id);
     List<Role> findByApplicationId(String applicationId);
     List<Role> findByUsernameAndApplicationId(String username, String applicationId);
+    Role assignPermission(String roleId, String permissionId);
+    Role revokePermission(String roleId, String permissionId);
     void delete(String id);
 }

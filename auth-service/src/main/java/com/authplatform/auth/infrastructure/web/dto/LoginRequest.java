@@ -14,5 +14,12 @@ public record LoginRequest(
     String password,
 
     @Schema(description = "Client application identifier", example = "my-application")
-    String applicationId
-) {}
+    String applicationId,
+
+    @Schema(description = "Optional LDAP/AD domain key configured in auth.ldap.domains", example = "corp")
+    String ldapDomain
+) {
+    public LoginRequest(String username, String password, String applicationId) {
+        this(username, password, applicationId, null);
+    }
+}

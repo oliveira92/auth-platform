@@ -20,7 +20,8 @@ public record ApplicationResponse(
     String issuer,
     String jwksUri,
     String introspectionUrl,
-    String tokenAlgorithm
+    String tokenAlgorithm,
+    String tokenAudience
 ) {
     public static ApplicationResponse from(Application app, AuthPlatformMetadataProperties authMetadata) {
         return new ApplicationResponse(
@@ -36,7 +37,8 @@ public record ApplicationResponse(
             authMetadata.getIssuer(),
             authMetadata.getJwksUri(),
             authMetadata.getIntrospectionUrl(),
-            authMetadata.getTokenAlgorithm()
+            authMetadata.getTokenAlgorithm(),
+            authMetadata.getTokenAudience()
         );
     }
 }

@@ -20,6 +20,7 @@ public class SecurityConfig {
                     "/api/v1/auth/refresh",
                     "/api/v1/auth/validate",
                     "/.well-known/jwks.json",
+                    "/.well-known/openid-configuration",
                     "/actuator/health",
                     "/actuator/info",
                     "/v3/api-docs/**",

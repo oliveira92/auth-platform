@@ -38,6 +38,7 @@ JWT_PUBLIC_KEY_SECRET_NAME="$SECRET_PREFIX/shared/jwt-public-key"
 LDAP_SECRET_NAME="$SECRET_PREFIX/auth-service/ldap-credentials"
 AUTH_SERVICE_PARAMETER_PREFIX="$PARAMETER_PREFIX/auth-service"
 AUTHORIZATION_SERVICE_PARAMETER_PREFIX="$PARAMETER_PREFIX/authorization-service"
+AUDIT_SERVICE_PARAMETER_PREFIX="$PARAMETER_PREFIX/audit-service"
 
 echo "Setting up AWS resources for environment: $ENV in region: $REGION"
 echo "Secrets prefix: $SECRET_PREFIX"
@@ -91,12 +92,27 @@ read_with_default LDAP_USER_SEARCH_BASE "LDAP user search base" "ou=Users"
 read_with_default LDAP_USER_SEARCH_FILTER "LDAP user search filter" "(sAMAccountName={0})"
 read_with_default LDAP_GROUP_SEARCH_BASE "LDAP group search base" "ou=Groups"
 read_with_default LDAP_GROUP_SEARCH_FILTER "LDAP group search filter" "(member={0})"
-read_required DB_URL "Authorization DB JDBC URL (ex: jdbc:postgresql://db:5432/authplatform)"
+read_with_default LDAP_DEFAULT_DOMAIN "Default LDAP domain key" "default"
+read_required DB_URL "Authorization DB JDBC URL (ex: jdbc:mysql://db:3306/authplatform?useSSL=true&serverTimezone=UTC)"
+read_with_default AUDIT_DB_URL "Audit DB JDBC URL" "${DB_URL}"
 read_with_default JWT_ISSUER "JWT issuer/public auth base URL" "https://auth.empresa.com"
+read_with_default JWT_AUDIENCE "JWT audience" "auth-platform-api"
+read_with_default RATE_LIMIT_ENABLED "Enable service rate limiting" "true"
+read_with_default RATE_LIMIT_WINDOW_SECONDS "Rate limit window in seconds" "60"
+read_with_default RATE_LIMIT_IP_LIMIT "Rate limit per IP/window" "120"
+read_with_default RATE_LIMIT_APPLICATION_LIMIT "Rate limit per application/window" "600"
+read_with_default LDAP_CACHE_ENABLED "Enable LDAP user/group Redis cache" "true"
+read_with_default LDAP_CACHE_USER_TTL_SECONDS "LDAP cached user TTL in seconds" "300"
+read_with_default LDAP_GROUP_SYNC_ENABLED "Enable periodic LDAP group sync to Redis" "true"
+read_with_default LDAP_GROUP_SYNC_INTERVAL_MS "LDAP group sync interval in milliseconds" "300000"
+read_with_default LDAP_GROUP_SYNC_INITIAL_DELAY_MS "LDAP group sync initial delay in milliseconds" "60000"
 AUTH_BASE_URL="${JWT_ISSUER%/}"
 read_with_default AUTH_JWKS_URI "JWKS URI exposed to consumer applications" "$AUTH_BASE_URL/.well-known/jwks.json"
 read_with_default AUTH_INTROSPECTION_URL "Introspection URL exposed to consumer applications" "$AUTH_BASE_URL/api/v1/auth/validate"
 read_with_default AUTH_TOKEN_ALGORITHM "JWT token algorithm" "RS256"
+read_with_default AUTH_TOKEN_AUDIENCE "Token audience exposed to consumer applications" "$JWT_AUDIENCE"
+read_with_default AUDIT_ENABLED "Enable audit publication from services" "true"
+read_with_default AUDIT_SERVICE_URL "Audit service base URL" "https://audit.empresa.com"
 
 # Prompt for LDAP credentials
 read -r -p "LDAP Service Account DN: " LDAP_DN
@@ -203,6 +219,9 @@ aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.group-search-filter" \
   --value "${LDAP_GROUP_SEARCH_FILTER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.default-domain" \
+  --value "${LDAP_DEFAULT_DOMAIN}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.access-token-expiration-seconds" \
   --value "900" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
@@ -212,11 +231,47 @@ aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.issuer" \
   --value "${JWT_ISSUER}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.jwt.audience" \
+  --value "${JWT_AUDIENCE}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.jwt-secret-name" \
   --value "${JWT_KEYS_SECRET_NAME}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.ldap-secret-name" \
   --value "${LDAP_SECRET_NAME}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.rate-limit.enabled" \
+  --value "${RATE_LIMIT_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.rate-limit.window-seconds" \
+  --value "${RATE_LIMIT_WINDOW_SECONDS}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.rate-limit.ip-limit" \
+  --value "${RATE_LIMIT_IP_LIMIT}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.rate-limit.application-limit" \
+  --value "${RATE_LIMIT_APPLICATION_LIMIT}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.audit.enabled" \
+  --value "${AUDIT_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.audit.base-url" \
+  --value "${AUDIT_SERVICE_URL}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.cache.enabled" \
+  --value "${LDAP_CACHE_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.cache.user-ttl-seconds" \
+  --value "${LDAP_CACHE_USER_TTL_SECONDS}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.cache.sync-enabled" \
+  --value "${LDAP_GROUP_SYNC_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.cache.sync-interval-ms" \
+  --value "${LDAP_GROUP_SYNC_INTERVAL_MS}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTH_SERVICE_PARAMETER_PREFIX/auth.ldap.cache.sync-initial-delay-ms" \
+  --value "${LDAP_GROUP_SYNC_INITIAL_DELAY_MS}" --type String
 
 # Authorization Service
 aws ssm put-parameter --region "$REGION" --overwrite \
@@ -225,6 +280,9 @@ aws ssm put-parameter --region "$REGION" --overwrite \
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.jwt.issuer" \
   --value "${JWT_ISSUER}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.jwt.audience" \
+  --value "${JWT_AUDIENCE}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.issuer" \
   --value "${JWT_ISSUER}" --type String
@@ -238,8 +296,37 @@ aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.token-algorithm" \
   --value "${AUTH_TOKEN_ALGORITHM}" --type String
 aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.platform.token-audience" \
+  --value "${AUTH_TOKEN_AUDIENCE}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
   --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.aws.secrets.jwt-public-key-name" \
   --value "${JWT_PUBLIC_KEY_SECRET_NAME}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.rate-limit.enabled" \
+  --value "${RATE_LIMIT_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.rate-limit.window-seconds" \
+  --value "${RATE_LIMIT_WINDOW_SECONDS}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.rate-limit.ip-limit" \
+  --value "${RATE_LIMIT_IP_LIMIT}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.rate-limit.application-limit" \
+  --value "${RATE_LIMIT_APPLICATION_LIMIT}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.audit.enabled" \
+  --value "${AUDIT_ENABLED}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/auth.audit.base-url" \
+  --value "${AUDIT_SERVICE_URL}" --type String
+
+# Audit Service
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUDIT_SERVICE_PARAMETER_PREFIX/spring.datasource.url" \
+  --value "${AUDIT_DB_URL}" --type String
+aws ssm put-parameter --region "$REGION" --overwrite \
+  --name "$AUDIT_SERVICE_PARAMETER_PREFIX/server.port" \
+  --value "8083" --type String
 
 echo ""
 echo "AWS setup complete for environment: $ENV"
@@ -248,4 +335,5 @@ if [ "$NAMESPACE_BY_ENV" = "true" ]; then
   echo "Configure service imports for this environment:"
   echo "  auth-service SPRING_CONFIG_IMPORT=optional:aws-parameterstore:$AUTH_SERVICE_PARAMETER_PREFIX/"
   echo "  authorization-service SPRING_CONFIG_IMPORT=optional:aws-parameterstore:$AUTHORIZATION_SERVICE_PARAMETER_PREFIX/"
+  echo "  audit-service SPRING_CONFIG_IMPORT=optional:aws-parameterstore:$AUDIT_SERVICE_PARAMETER_PREFIX/"
 fi

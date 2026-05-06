@@ -13,4 +13,5 @@ public class JwtProperties {
     private long accessTokenExpirationSeconds = 900;        // 15 minutes
     private long refreshTokenExpirationSeconds = 86400;     // 24 hours
     private String issuer = "auth-platform";
+    private String audience = "auth-platform-api";
 }

@@ -31,12 +31,14 @@ public class JwtTokenAdapter implements JwtPort {
             .id(token.tokenId())
             .subject(token.username())
             .issuer(jwtProperties.getIssuer())
+            .audience().add(jwtProperties.getAudience()).and()
             .issuedAt(Date.from(token.issuedAt()))
             .expiration(Date.from(token.expiresAt()))
             .claim("type", token.type().name())
             .claim("roles", token.roles())
             .claim("groups", token.groups())
             .claim("applicationId", token.applicationId())
+            .claim("ldapDomain", token.ldapDomain())
             .signWith(jwtKeyProvider.getPrivateKey(), Jwts.SIG.RS256)
             .compact();
     }
@@ -47,6 +49,7 @@ public class JwtTokenAdapter implements JwtPort {
             Claims claims = Jwts.parser()
                 .verifyWith(jwtKeyProvider.getPublicKey())
                 .requireIssuer(jwtProperties.getIssuer())
+                .requireAudience(jwtProperties.getAudience())
                 .build()
                 .parseSignedClaims(rawToken)
                 .getPayload();
@@ -60,7 +63,8 @@ public class JwtTokenAdapter implements JwtPort {
                 claims.get("roles", List.class),
                 claims.get("groups", List.class),
                 claims.get("applicationId", String.class),
-                null
+                null,
+                claims.get("ldapDomain", String.class) == null ? "default" : claims.get("ldapDomain", String.class)
             );
         } catch (ExpiredJwtException e) {
             throw new InvalidTokenException("Token has expired", e);

@@ -14,9 +14,9 @@
 
 ## 1. Função de Cada Microsserviço
 
-A plataforma é composta por **2 microsserviços independentes**. Cada um possui seu próprio `pom.xml`, ciclo de build, Dockerfile e pode ser desenvolvido, testado e implantado de forma autônoma.
+A plataforma é composta por **3 microsserviços independentes**. Cada um possui seu próprio `pom.xml`, ciclo de build, Dockerfile e pode ser desenvolvido, testado e implantado de forma autônoma.
 
-> **Nota sobre API Gateway:** A decisão sobre um API Gateway (AWS API Gateway, Kong, etc.) está reservada para uma fase futura da implantação. Cada serviço expõe seus endpoints diretamente e valida o JWT Bearer token de forma independente.
+> **Nota arquitetural:** neste momento a plataforma não utiliza API Gateway. As aplicações consumidoras chamam diretamente `auth-service` e `authorization-service`, mantendo validação JWT local por serviço.
 
 ---
 
@@ -38,7 +38,13 @@ AuthenticateUserUseCaseImpl
          ↓ chama LdapUserPort (porta de saída)
          ↓
 LdapUserAdapter (implementação)
-         ↓ Spring LDAP
+         ↓ LDAP bind obrigatório
+         ↓
+OpenLDAP / Active Directory
+         ↓ senha válida
+Redis LDAP User Cache
+         ↓ hit: atributos/grupos cacheados
+         ↓ miss: Spring LDAP search
          ↓
 OpenLDAP / Active Directory
          ↓ retorna User{username, email, groups: ["engineers"], roles: ["ROLE_ENGINEERS"]}
@@ -58,6 +64,10 @@ Retorna TokenPair{accessToken, refreshToken, expiresIn: 900}
 
 **Porta:** 8081  
 **Dependências:** LDAP/AD, Redis, AWS Secrets Manager (chaves RSA)
+
+**Cache LDAP/AD na Fase 2:** após o bind LDAP/AD confirmar a senha, atributos e grupos do usuário podem vir do Redis. Em cache miss, o `auth-service` consulta LDAP/AD e grava o resultado com TTL. Um job periódico reconsulta o diretório para usuários cacheados e atualiza grupos no Redis. Redis nunca armazena senha e nunca substitui o bind de autenticação.
+
+**Múltiplos domínios LDAP/AD na Fase 2:** o login aceita `ldapDomain` opcional. Quando omitido, o serviço usa `auth.ldap.default-domain`; também é possível inferir o domínio com usuário no formato `DOMINIO\usuario`. O domínio resolvido entra no claim `ldapDomain` do JWT e é reutilizado no refresh token para buscar o usuário no mesmo diretório.
 
 **Endpoints:**
 | Método | Path | Função |
@@ -110,7 +120,7 @@ Atribuições:
 ```
 
 **Porta:** 8082  
-**Dependências:** PostgreSQL (dados persistentes de RBAC), AWS Secrets Manager/LocalStack (chave pública RSA para validação de JWT)
+**Dependências:** MySQL (dados persistentes de RBAC), AWS Secrets Manager/LocalStack (chave pública RSA para validação de JWT)
 
 **Endpoints:**
 | Método | Path | Função |
@@ -122,14 +132,54 @@ Atribuições:
 | GET | `/api/v1/roles?applicationId=` | Listar roles da aplicação |
 | POST | `/api/v1/roles/{id}/assignments` | Atribuir role a usuário |
 | DELETE | `/api/v1/roles/{id}/assignments` | Revogar role de usuário |
+| POST | `/api/v1/permissions` | Criar permissão |
+| GET | `/api/v1/permissions` | Listar permissões |
+| PUT | `/api/v1/permissions/{id}` | Atualizar permissão |
+| DELETE | `/api/v1/permissions/{id}` | Remover permissão |
+| POST | `/api/v1/roles/{roleId}/permissions/{permissionId}` | Associar permissão a role |
+| DELETE | `/api/v1/roles/{roleId}/permissions/{permissionId}` | Remover permissão da role |
 | GET | `/api/v1/authorization/check` | Verificar permissão |
 | GET | `/api/v1/authorization/permissions` | Listar permissões do usuário |
 
-> **Limite atual do MVP:** o modelo de dados já possui permissões e associação role-permission, mas ainda não há endpoint público para criar permissões ou vinculá-las a roles. Até esses endpoints existirem, testes com `allowed:true` dependem de seed/migração/script administrativo que insira registros em `permissions` e `role_permissions`.
+> **Fase 2:** permissões e associação role-permission possuem API administrativa. Testes com `allowed:true` podem ser feitos sem seed manual, criando a permissão e vinculando-a à role.
+
+> **Fase 2:** os serviços aplicam rate limiting distribuído via Redis por IP e por `applicationId`, configurado por `auth.rate-limit.*`.
 
 **Build independente:**
 ```bash
 cd authorization-service
+mvn clean package -DskipTests
+```
+
+---
+
+### 1.3 `audit-service` — A Trilha de Evidências
+
+**O que faz:** Centraliza eventos relevantes da plataforma para investigação, conformidade e rastreabilidade operacional.
+
+Ele recebe eventos publicados de forma fail-open por `auth-service` e `authorization-service`. Se o audit-service ficar indisponível, login e autorização continuam funcionando, mas os produtores registram warning para observabilidade.
+
+**Eventos cobertos na Fase 2:**
+
+- Login com sucesso/falha, refresh e logout
+- Cadastro, alteração e desativação de aplicações
+- Criação de roles e atribuição/revogação de roles para usuários
+- CRUD de permissões e associação/revogação de permissões em roles
+
+**Porta:** 8083
+
+**Dependências:** MySQL (tabela `audit_events`)
+
+**Endpoints:**
+| Método | Path | Função |
+|--------|------|--------|
+| POST | `/api/v1/audit/events` | Registrar evento |
+| GET | `/api/v1/audit/events` | Consultar eventos com filtros |
+| GET | `/api/v1/audit/events/{id}` | Buscar evento por id |
+
+**Build independente:**
+```bash
+cd audit-service
 mvn clean package -DskipTests
 ```
 
@@ -150,7 +200,8 @@ Aplicação Cliente
   │  │  → JWT validado na requisição  │
   │  │  → Emite/valida tokens RS256   │
   │  │  ←→ LDAP/AD                   │
-  │  │  ←→ Redis (blacklist)         │
+  │  │  ←→ Redis (tokens/cache/rate) │
+  │  │  → audit-service              │
   │  │  ←→ AWS Secrets Manager       │
   │  └────────────────────────────────┘
   │
@@ -161,14 +212,26 @@ Aplicação Cliente
      │                                │
      │  → JWT validado na requisição  │
      │  → Verifica permissões RBAC    │
-     │  ←→ PostgreSQL (roles/perms)  │
+     │  ←→ MySQL (roles/perms)       │
+     │  → audit-service              │
      │  ←→ AWS Secrets Manager       │
+     └────────────────────────────────┘
+  │
+  └── HTTP :8083 (auditoria)
+      ▼
+     ┌────────────────────────────────┐
+     │  audit-service (:8083)         │
+     │                                │
+     │  → Registra audit_events       │
+     │  ←→ MySQL                     │
      └────────────────────────────────┘
 ```
 
 **Validação de JWT por serviço:** Cada serviço valida o token `Authorization: Bearer` diretamente usando a chave pública RSA. O `auth-service` usa a chave privada para emitir tokens; o `authorization-service` usa apenas a chave pública para validação.
 
-**Ausência de service discovery:** Os serviços são acessados diretamente por porta. Não há necessidade de um registro de serviços centralizado. Em produção, um API Gateway (AWS API Gateway, Kong, etc.) pode ser introduzido na frente destes serviços.
+**Service discovery:** os serviços são acessados diretamente por DNS/host e porta do ambiente. Neste momento não há camada de API Gateway no fluxo da solução.
+
+**Rate limiting:** ambos os serviços aplicam limite distribuído em Redis por IP e por `applicationId` quando o identificador estiver disponível na query string ou no header `X-Application-Id`. Quando o limite é excedido, a resposta é `429 Too Many Requests`.
 
 ---
 
@@ -189,6 +252,7 @@ docker compose ps
 # 4. Verificar logs de inicialização
 docker compose logs auth-service | grep "Started AuthServiceApplication"
 docker compose logs authorization-service | grep "Started AuthorizationServiceApplication"
+docker compose logs audit-service | grep "Started AuditServiceApplication"
 ```
 
 ### 3.2 Checklist de Homologação — Autenticação
@@ -198,6 +262,7 @@ Execute na ordem. Use a collection Insomnia ou curl.
 ```
 □ HC-01: Auth Service responde /actuator/health com status UP  (http://localhost:8081/actuator/health)
 □ HC-02: Authorization Service responde /actuator/health com status UP  (http://localhost:8082/actuator/health)
+□ HC-03: Audit Service responde /actuator/health com status UP  (http://localhost:8083/actuator/health)
 
 □ AUTH-01: Login com credenciais válidas (john.doe) retorna 200 com access_token e refresh_token
 □ AUTH-02: Login com senha errada retorna 401 com mensagem "Authentication Failed"
@@ -213,14 +278,41 @@ Execute na ordem. Use a collection Insomnia ou curl.
 
 ### 3.3 Checklist de Homologação — Autorização
 
+Antes de testar a autorização ponta a ponta, você pode carregar um cenário pronto no MySQL:
+
+```bash
+./scripts/mysql/load-authorization-xpto.sh
+```
+
+Esse comando executa `scripts/mysql/seed-authorization-xpto.sql` e cria a aplicação `portal-xpto`, roles, permissões e vínculos de usuários.
+
+Dados principais:
+
+| Item | Valor |
+|------|-------|
+| Application ID | Em banco novo: `11111111-1111-1111-1111-111111111111`; se a aplicação já existir, use o `id` exibido no output do script |
+| Client ID para login | `portal-xpto-a1b2c3d4` |
+| Usuário comum | `john.doe` → `XPTO_USER` |
+| Usuário RH | `jane.smith` → `XPTO_RH` |
+| Usuário admin | `admin.user` → `XPTO_ADMIN` |
+
+Checks esperados após a carga:
+
+```text
+john.doe   + beneficios:read       => allowed:true
+john.doe   + folha:read            => allowed:false
+jane.smith + folha:read            => allowed:true
+admin.user + configuracoes:write   => allowed:true
+```
+
 ```
 □ AUTHZ-01: Registrar aplicação retorna 201 com id e clientId únicos
 □ AUTHZ-02: Criar role XPTO_USER usando o id da aplicação retorna 201
 □ AUTHZ-03: Criar role XPTO_RH usando o id da aplicação retorna 201
 □ AUTHZ-04: Atribuir XPTO_USER a john.doe retorna 201
 □ AUTHZ-05: Listar roles da aplicação mostra XPTO_USER e XPTO_RH
-□ AUTHZ-06: Sem seed de permissions/role_permissions, verificar beneficios:read retorna {allowed: false}
-□ AUTHZ-07: Com permissions e role_permissions previamente populadas, beneficios:read para john.doe retorna {allowed: true}
+□ AUTHZ-06: Sem permissão vinculada à role, verificar beneficios:read retorna {allowed: false}
+□ AUTHZ-07: Após criar permission e vinculá-la à role, beneficios:read para john.doe retorna {allowed: true}
 □ AUTHZ-08: Revogar role de john.doe retorna 204
 □ AUTHZ-09: Verificar beneficios:read após revogação retorna {allowed: false}
 ```
@@ -262,7 +354,8 @@ export default function () {
   const payload = JSON.stringify({
     username: 'john.doe',
     password: 'password123',
-    applicationId: 'load-test'
+    applicationId: 'load-test',
+    ldapDomain: 'default'
   });
 
   const params = { headers: { 'Content-Type': 'application/json' } };
@@ -327,7 +420,6 @@ O time responsável pelo Portal XPTO faz o onboarding por conta própria, sem pr
 ```bash
 curl -X POST http://localhost:8082/api/v1/applications \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{
     "name": "portal-xpto",
     "description": "Portal corporativo de RH e benefícios",
@@ -368,22 +460,21 @@ curl -X POST http://localhost:8082/api/v1/roles \
   -d '{ "name": "XPTO_RH", "description": "Acesso RH", "applicationId": "app-uuid-001" }'
 ```
 
-**Passo 3 — Associar permissões às roles (estado atual do MVP):**
+**Passo 3 — Criar permissões e associar às roles:**
 
-Ainda não há endpoint público para cadastrar permissões e vincular permissões a roles. Para homologar o fluxo completo enquanto essa API não existe, use uma migração, seed ou script administrativo no PostgreSQL:
+```bash
+curl -X POST http://localhost:8082/api/v1/permissions \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "beneficios:read",
+    "description": "Ler beneficios",
+    "resource": "beneficios",
+    "action": "read"
+  }'
 
-```sql
-INSERT INTO permissions (id, name, description, resource, action)
-VALUES
-  ('perm-beneficios-read', 'beneficios:read', 'Ler beneficios', 'beneficios', 'read'),
-  ('perm-perfil-read', 'perfil:read', 'Ler perfil', 'perfil', 'read')
-ON CONFLICT (resource, action) DO NOTHING;
-
-INSERT INTO role_permissions (role_id, permission_id)
-VALUES
-  ('role-uuid-xpto-user', 'perm-beneficios-read'),
-  ('role-uuid-xpto-user', 'perm-perfil-read')
-ON CONFLICT DO NOTHING;
+curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/permissions/perm-uuid-beneficios-read \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 **Passo 4 — Atribuir roles aos usuários:**
@@ -437,7 +528,8 @@ async function login(username, password) {
     body: JSON.stringify({
       username,
       password,
-      applicationId: 'portal-xpto-a1b2c3d4'
+      applicationId: 'portal-xpto-a1b2c3d4',
+      ldapDomain: 'corp'
     })
   });
 
@@ -472,7 +564,9 @@ async function loadSigningKeys(jwksUri) {
 }
 ```
 
-O JWT emitido pelo `auth-service` carrega `kid` no header. O backend da aplicação usa esse `kid` para escolher a chave correta no JWKS e validar o token localmente.
+O JWT emitido pelo `auth-service` carrega `kid` no header e `aud` no payload. O backend da aplicação usa esse `kid` para escolher a chave correta no JWKS e validar o token localmente. Os serviços internos usam o mesmo contrato para validar `iss`, `aud`, assinatura e expiração.
+
+O `auth-service` também publica `GET /.well-known/openid-configuration`, usado por clientes compatíveis com descoberta OIDC para encontrar o `jwks_uri`.
 
 Estado atual: o JWKS publica a chave pública ativa. A plataforma já prepara o contrato de `kid`, mas rotação suave com múltiplas chaves ativas simultâneas ainda deve ser evoluída antes de um processo de rotação sem janela de transição.
 
@@ -501,7 +595,7 @@ NAVEGADOR               PORTAL XPTO API         AUTH PLATFORM
     │                        │ &resource=folha&action=read
     │                        ├───────────────────────►│
     │                        │                        │ → valida JWT RS256
-    │                        │                        │ → consulta PostgreSQL
+    │                        │                        │ → consulta MySQL
     │                        │  {allowed: false}       │
     │                        │◄───────────────────────┤
     │                        │                        │
@@ -686,7 +780,8 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 2. Execute `Autenticacao / Login (LDAP/AD)` — copie o `access_token` para a variável de ambiente
 3. Execute `Autenticacao / Validar Token` — deve retornar `{"active": true}`
 4. Execute `Auth Metadata / JWKS Publico` para confirmar o endpoint auto-serviço da chave pública.
-5. Execute `Portal XPTO - Fluxo de Consumo` na ordem dos passos XPTO-01 a XPTO-09. Antes dos checks que esperam `allowed:true`, crie/atribua as roles pela pasta `Gestao de Roles` e popule `permissions`/`role_permissions` via seed, migração ou script administrativo.
+5. Execute `Auth Metadata / OpenID Configuration` para confirmar os metadados públicos de descoberta.
+6. Execute `Portal XPTO - Fluxo de Consumo` na ordem dos passos XPTO-01 a XPTO-09. Antes dos checks que esperam `allowed:true`, crie as permissões pela pasta `Gestao de Permissoes`, vincule-as às roles e atribua as roles pela pasta `Gestao de Roles`.
 
 ### Pastas da Collection
 
@@ -694,9 +789,10 @@ O arquivo [`docs/insomnia-auth-platform.json`](insomnia-auth-platform.json) cont
 |-------|----------|
 | `Health Checks` | 2 requests de verificação de saúde (Auth, Authorization) |
 | `Autenticacao` | Login, Refresh, Validate, Logout (+ casos negativos) |
-| `Auth Metadata` | Endpoint público JWKS para validação local dos tokens |
+| `Auth Metadata` | Endpoints públicos JWKS e OpenID Configuration para validação local |
 | `Autorizacao (RBAC)` | Check permission, listar permissões |
 | `Gestao de Aplicacoes` | Registrar, atualizar, desativar aplicações |
+| `Gestao de Permissoes` | Criar, listar, atualizar, remover e associar permissões a roles |
 | `Gestao de Roles` | Criar roles, atribuir/revogar para usuários |
 | `Portal XPTO - Fluxo de Consumo` | 9 passos do caso real após onboarding básico de aplicação, roles e permissões |
 | `Documentacao (Swagger)` | Links para as UIs de documentação |

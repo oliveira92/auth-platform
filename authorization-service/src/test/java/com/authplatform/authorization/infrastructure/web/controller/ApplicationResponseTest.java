@@ -32,6 +32,7 @@ class ApplicationResponseTest {
         metadata.setJwksUri("https://auth.empresa.com/.well-known/jwks.json");
         metadata.setIntrospectionUrl("https://auth.empresa.com/api/v1/auth/validate");
         metadata.setTokenAlgorithm("RS256");
+        metadata.setTokenAudience("auth-platform-api");
 
         ApplicationResponse response = ApplicationResponse.from(app, metadata);
 
@@ -41,5 +42,6 @@ class ApplicationResponseTest {
         assertEquals("https://auth.empresa.com/.well-known/jwks.json", response.jwksUri());
         assertEquals("https://auth.empresa.com/api/v1/auth/validate", response.introspectionUrl());
         assertEquals("RS256", response.tokenAlgorithm());
+        assertEquals("auth-platform-api", response.tokenAudience());
     }
 }

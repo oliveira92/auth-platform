@@ -10,4 +10,5 @@ import org.springframework.stereotype.Component;
 public class JwtProperties {
     private String publicKey;
     private String issuer = "auth-platform";
+    private String audience = "auth-platform-api";
 }

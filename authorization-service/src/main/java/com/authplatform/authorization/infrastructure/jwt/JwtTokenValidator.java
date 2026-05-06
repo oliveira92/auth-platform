@@ -25,6 +25,7 @@ public class JwtTokenValidator {
         return Jwts.parser()
             .verifyWith(getPublicKey())
             .requireIssuer(jwtProperties.getIssuer())
+            .requireAudience(jwtProperties.getAudience())
             .build()
             .parseSignedClaims(token)
             .getPayload();

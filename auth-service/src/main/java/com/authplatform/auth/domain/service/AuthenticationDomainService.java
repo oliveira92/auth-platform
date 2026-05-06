@@ -20,7 +20,8 @@ public class AuthenticationDomainService {
             user.roles(),
             user.groups(),
             applicationId,
-            clientIp
+            clientIp,
+            user.ldapDomain()
         );
     }
 
@@ -35,7 +36,8 @@ public class AuthenticationDomainService {
             user.roles(),
             user.groups(),
             applicationId,
-            clientIp
+            clientIp,
+            user.ldapDomain()
         );
     }
 
@@ -50,7 +52,8 @@ public class AuthenticationDomainService {
             user.roles(),
             user.groups(),
             refreshToken.applicationId(),
-            refreshToken.clientIp()
+            refreshToken.clientIp(),
+            user.ldapDomain()
         );
     }
 }

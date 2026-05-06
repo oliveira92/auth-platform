@@ -1,11 +1,13 @@
 package com.authplatform.auth.application.usecase;
 
+import com.authplatform.auth.domain.model.AuditEvent;
 import com.authplatform.auth.domain.exception.InvalidTokenException;
 import com.authplatform.auth.domain.model.Token;
 import com.authplatform.auth.domain.model.TokenPair;
 import com.authplatform.auth.domain.model.User;
 import com.authplatform.auth.domain.port.in.RefreshTokenCommand;
 import com.authplatform.auth.domain.port.in.RefreshTokenUseCase;
+import com.authplatform.auth.domain.port.out.AuditEventPort;
 import com.authplatform.auth.domain.port.out.JwtPort;
 import com.authplatform.auth.domain.port.out.LdapUserPort;
 import com.authplatform.auth.domain.port.out.TokenStoragePort;
@@ -16,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -25,6 +28,7 @@ public class RefreshTokenUseCaseImpl implements RefreshTokenUseCase {
     private final JwtPort jwtPort;
     private final LdapUserPort ldapUserPort;
     private final TokenStoragePort tokenStoragePort;
+    private final AuditEventPort auditEventPort;
     private final AuthenticationDomainService authenticationDomainService;
     private final JwtProperties jwtProperties;
 
@@ -44,7 +48,7 @@ public class RefreshTokenUseCaseImpl implements RefreshTokenUseCase {
             throw new InvalidTokenException("Refresh token has been revoked");
         }
 
-        User user = ldapUserPort.findByUsername(parsedRefreshToken.username())
+        User user = ldapUserPort.findByUsername(parsedRefreshToken.username(), parsedRefreshToken.ldapDomain())
             .orElseThrow(() -> new InvalidTokenException("User not found for refresh token"));
 
         // Revoke old refresh token (rotation strategy)
@@ -63,6 +67,16 @@ public class RefreshTokenUseCaseImpl implements RefreshTokenUseCase {
 
         tokenStoragePort.save(newAccessToken, Duration.ofSeconds(jwtProperties.getAccessTokenExpirationSeconds()));
         tokenStoragePort.save(newRefreshToken, Duration.ofSeconds(jwtProperties.getRefreshTokenExpirationSeconds()));
+
+        auditEventPort.publish(AuditEvent.auth(
+            "AUTH_REFRESH",
+            user.username(),
+            user.username(),
+            parsedRefreshToken.applicationId(),
+            "SUCCESS",
+            command.clientIp(),
+            Map.of("ldapDomain", user.ldapDomain())
+        ));
 
         log.info("Token refreshed for user: {}", user.username());
         return TokenPair.of(

@@ -12,4 +12,5 @@ public class AuthPlatformMetadataProperties {
     private String jwksUri = "http://localhost:8081/.well-known/jwks.json";
     private String introspectionUrl = "http://localhost:8081/api/v1/auth/validate";
     private String tokenAlgorithm = "RS256";
+    private String tokenAudience = "auth-platform-api";
 }

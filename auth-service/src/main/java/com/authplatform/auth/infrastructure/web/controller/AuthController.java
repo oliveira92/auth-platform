@@ -53,7 +53,8 @@ public class AuthController {
                 request.username(),
                 request.password(),
                 request.applicationId(),
-                getClientIp(httpRequest)
+                getClientIp(httpRequest),
+                request.ldapDomain()
             )
         );
 
@@ -114,7 +115,8 @@ public class AuthController {
             t.type().name(),
             t.roles(),
             t.groups(),
-            t.applicationId()
+            t.applicationId(),
+            t.ldapDomain()
         ));
     }
 

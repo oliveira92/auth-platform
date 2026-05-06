@@ -1,5 +1,6 @@
 package com.authplatform.auth.infrastructure.jwt;
 
+import com.authplatform.auth.domain.exception.InvalidTokenException;
 import com.authplatform.auth.domain.model.Token;
 import com.authplatform.auth.domain.model.TokenType;
 import com.authplatform.auth.infrastructure.config.JwtProperties;
@@ -13,8 +14,10 @@ import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class JwtTokenAdapterTest {
 
@@ -25,6 +28,7 @@ class JwtTokenAdapterTest {
         properties.setPrivateKey(toPem("PRIVATE KEY", keyPair.getPrivate().getEncoded()));
         properties.setPublicKey(toPem("PUBLIC KEY", keyPair.getPublic().getEncoded()));
         properties.setIssuer("https://auth.empresa.com");
+        properties.setAudience("auth-platform-api");
 
         JwtKeyProvider keyProvider = new JwtKeyProvider(properties);
         JwtTokenAdapter adapter = new JwtTokenAdapter(properties, keyProvider);
@@ -52,6 +56,7 @@ class JwtTokenAdapterTest {
         assertEquals("token-123", parsed.getPayload().getId());
         assertEquals("john.doe", parsed.getPayload().getSubject());
         assertEquals("https://auth.empresa.com", parsed.getPayload().getIssuer());
+        assertEquals(Set.of("auth-platform-api"), parsed.getPayload().getAudience());
 
         Token parsedToken = adapter.parseToken(rawToken);
         assertEquals(token.tokenId(), parsedToken.tokenId());
@@ -59,6 +64,35 @@ class JwtTokenAdapterTest {
         assertEquals(token.applicationId(), parsedToken.applicationId());
         assertEquals(token.roles(), parsedToken.roles());
         assertEquals(token.groups(), parsedToken.groups());
+    }
+
+    @Test
+    void shouldRejectTokenWithUnexpectedAudience() throws Exception {
+        KeyPair keyPair = generateRsaKeyPair();
+        JwtProperties properties = new JwtProperties();
+        properties.setPrivateKey(toPem("PRIVATE KEY", keyPair.getPrivate().getEncoded()));
+        properties.setPublicKey(toPem("PUBLIC KEY", keyPair.getPublic().getEncoded()));
+        properties.setIssuer("https://auth.empresa.com");
+        properties.setAudience("auth-platform-api");
+
+        JwtTokenAdapter adapter = new JwtTokenAdapter(properties, new JwtKeyProvider(properties));
+        Instant issuedAt = Instant.now().minusSeconds(1);
+        Token token = new Token(
+            "token-123",
+            "john.doe",
+            TokenType.ACCESS,
+            issuedAt,
+            issuedAt.plusSeconds(900),
+            List.of("ROLE_ENGINEERS"),
+            List.of("engineers"),
+            "portal-xpto-a1b2c3d4",
+            "127.0.0.1"
+        );
+
+        String rawToken = adapter.generateToken(token);
+        properties.setAudience("other-api");
+
+        assertThrows(InvalidTokenException.class, () -> adapter.parseToken(rawToken));
     }
 
     private KeyPair generateRsaKeyPair() throws Exception {

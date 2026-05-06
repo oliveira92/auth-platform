@@ -1,0 +1,24 @@
+FROM maven:3.9-eclipse-temurin-25-alpine AS builder
+WORKDIR /app
+
+COPY pom.xml .
+RUN mvn dependency:go-offline -q
+
+COPY src src
+RUN mvn package -DskipTests -q
+
+FROM eclipse-temurin:25-jre-alpine
+WORKDIR /app
+
+RUN apk add --no-cache curl && addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+COPY --from=builder /app/target/*.jar app.jar
+
+EXPOSE 8083
+
+ENTRYPOINT ["java", \
+  "-XX:+UseZGC", \
+  "-XX:+ZGenerational", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]

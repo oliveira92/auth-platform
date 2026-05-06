@@ -5,9 +5,11 @@ import com.authplatform.authorization.domain.model.Role;
 import com.authplatform.authorization.domain.port.out.RoleRepository;
 import com.authplatform.authorization.infrastructure.persistence.entity.PermissionEntity;
 import com.authplatform.authorization.infrastructure.persistence.entity.RoleEntity;
+import com.authplatform.authorization.infrastructure.persistence.repository.PermissionJpaRepository;
 import com.authplatform.authorization.infrastructure.persistence.repository.RoleJpaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +19,7 @@ import java.util.Optional;
 public class RoleRepositoryAdapter implements RoleRepository {
 
     private final RoleJpaRepository jpaRepository;
+    private final PermissionJpaRepository permissionJpaRepository;
 
     @Override
     public Role save(Role role) {
@@ -41,6 +44,33 @@ public class RoleRepositoryAdapter implements RoleRepository {
         return jpaRepository.findByUsernameAndApplicationId(username, applicationId).stream()
             .map(this::toDomain)
             .toList();
+    }
+
+    @Override
+    @Transactional
+    public Role assignPermission(String roleId, String permissionId) {
+        RoleEntity role = jpaRepository.findById(roleId)
+            .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleId));
+        PermissionEntity permission = permissionJpaRepository.findById(permissionId)
+            .orElseThrow(() -> new IllegalArgumentException("Permission not found: " + permissionId));
+
+        boolean alreadyAssigned = role.getPermissions().stream()
+            .anyMatch(existing -> existing.getId().equals(permissionId));
+        if (!alreadyAssigned) {
+            role.getPermissions().add(permission);
+        }
+
+        return toDomain(jpaRepository.save(role));
+    }
+
+    @Override
+    @Transactional
+    public Role revokePermission(String roleId, String permissionId) {
+        RoleEntity role = jpaRepository.findById(roleId)
+            .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleId));
+
+        role.getPermissions().removeIf(permission -> permission.getId().equals(permissionId));
+        return toDomain(jpaRepository.save(role));
     }
 
     @Override

@@ -10,9 +10,14 @@ spring:
         access-key: test
         secret-key: test
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/authplatform}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/authplatform?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:authplatform}
     password: ${DB_PASSWORD:authplatform}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
 aws:
   endpoint-override: ${AWS_ENDPOINT_OVERRIDE:http://localhost:4566}
@@ -28,3 +33,4 @@ auth:
     jwks-uri: ${AUTH_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
     introspection-url: ${AUTH_INTROSPECTION_URL:http://localhost:8081/api/v1/auth/validate}
     token-algorithm: ${AUTH_TOKEN_ALGORITHM:RS256}
+    token-audience: ${AUTH_TOKEN_AUDIENCE:${JWT_AUDIENCE:auth-platform-api}}

@@ -5,6 +5,15 @@ import com.authplatform.auth.domain.model.User;
 import java.util.Optional;
 
 public interface LdapUserPort {
-    User authenticate(String username, String password);
-    Optional<User> findByUsername(String username);
+    default User authenticate(String username, String password) {
+        return authenticate(username, password, null);
+    }
+
+    User authenticate(String username, String password, String ldapDomain);
+
+    default Optional<User> findByUsername(String username) {
+        return findByUsername(username, null);
+    }
+
+    Optional<User> findByUsername(String username, String ldapDomain);
 }
