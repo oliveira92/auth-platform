@@ -130,18 +130,23 @@ Atribuições:
 | DELETE | `/api/v1/applications/{id}` | Desativar aplicação |
 | POST | `/api/v1/roles` | Criar role |
 | GET | `/api/v1/roles?applicationId=` | Listar roles da aplicação |
-| POST | `/api/v1/roles/{id}/assignments` | Atribuir role a usuário |
-| DELETE | `/api/v1/roles/{id}/assignments` | Revogar role de usuário |
+| POST | `/api/v1/roles/{id}/group-assignments` | **[Model 1]** Atribuir grupo LDAP à role |
+| DELETE | `/api/v1/roles/{id}/group-assignments` | **[Model 1]** Revogar grupo LDAP da role |
+| GET | `/api/v1/roles/group-assignments?applicationId=` | **[Model 1]** Listar mapeamentos grupo→role |
+| POST | `/api/v1/roles/{id}/assignments` | *(legado)* Atribuir role a usuário individual |
+| DELETE | `/api/v1/roles/{id}/assignments` | *(legado)* Revogar role de usuário individual |
 | POST | `/api/v1/permissions` | Criar permissão |
 | GET | `/api/v1/permissions` | Listar permissões |
 | PUT | `/api/v1/permissions/{id}` | Atualizar permissão |
 | DELETE | `/api/v1/permissions/{id}` | Remover permissão |
 | POST | `/api/v1/roles/{roleId}/permissions/{permissionId}` | Associar permissão a role |
 | DELETE | `/api/v1/roles/{roleId}/permissions/{permissionId}` | Remover permissão da role |
-| GET | `/api/v1/authorization/check` | Verificar permissão |
-| GET | `/api/v1/authorization/permissions` | Listar permissões do usuário |
+| GET | `/api/v1/authorization/check` | Verificar permissão (baseada em grupos do JWT) |
+| GET | `/api/v1/authorization/permissions` | Listar permissões do usuário (baseada em grupos do JWT) |
 
-> **Fase 2:** permissões e associação role-permission possuem API administrativa. Testes com `allowed:true` podem ser feitos sem seed manual, criando a permissão e vinculando-a à role.
+> **Model 1 — LDAP como fonte de verdade:** as permissões são derivadas dos grupos AD/LDAP
+> presentes no JWT. Use `group-assignments` para mapear grupos LDAP às roles da plataforma.
+> Não é necessária nenhuma atribuição manual por usuário.
 
 > **Fase 2:** os serviços aplicam rate limiting distribuído via Redis por IP e por `applicationId`, configurado por `auth.rate-limit.*`.
 
@@ -309,12 +314,16 @@ admin.user + configuracoes:write   => allowed:true
 □ AUTHZ-01: Registrar aplicação retorna 201 com id e clientId únicos
 □ AUTHZ-02: Criar role XPTO_USER usando o id da aplicação retorna 201
 □ AUTHZ-03: Criar role XPTO_RH usando o id da aplicação retorna 201
-□ AUTHZ-04: Atribuir XPTO_USER a john.doe retorna 201
-□ AUTHZ-05: Listar roles da aplicação mostra XPTO_USER e XPTO_RH
-□ AUTHZ-06: Sem permissão vinculada à role, verificar beneficios:read retorna {allowed: false}
-□ AUTHZ-07: Após criar permission e vinculá-la à role, beneficios:read para john.doe retorna {allowed: true}
-□ AUTHZ-08: Revogar role de john.doe retorna 204
+
+[Model 1 — LDAP como fonte de verdade]
+□ AUTHZ-04: Mapear grupo LDAP "engineers" à role XPTO_USER via POST /roles/{id}/group-assignments retorna 201
+□ AUTHZ-05: Listar mapeamentos grupo→role via GET /roles/group-assignments?applicationId= mostra a atribuição
+□ AUTHZ-06: Sem permissão vinculada à role, verificar beneficios:read com JWT de john.doe (grupo "engineers") retorna {allowed: false}
+□ AUTHZ-07: Após criar permission e vinculá-la à role, beneficios:read com JWT de john.doe retorna {allowed: true}
+□ AUTHZ-08: Revogar mapeamento "engineers" → XPTO_USER via DELETE /roles/{id}/group-assignments retorna 204
 □ AUTHZ-09: Verificar beneficios:read após revogação retorna {allowed: false}
+□ AUTHZ-10: Usuário com grupo "rh" mapeado à XPTO_RH — folha:read retorna {allowed: true} sem nenhuma configuração manual por usuário
+□ AUTHZ-11: allowedRoles da aplicação = ["ROLE_ENGINEERS"] — usuário com JWT contendo ROLE_CONTRACTORS retorna permissions: []
 ```
 
 ### 3.4 Checklist de Segurança
@@ -477,16 +486,44 @@ curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/permissions/
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-**Passo 4 — Atribuir roles aos usuários:**
+**Passo 4 — Mapear grupos LDAP às roles (Model 1 — LDAP como fonte de verdade):**
+
+Em vez de atribuir roles por usuário, mapeia-se o **grupo AD/LDAP** à role.
+Todo usuário cujo JWT contenha esse grupo herda automaticamente as permissões.
+
 ```bash
-curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/assignments \
+# Grupo "engineers" do AD → role XPTO_USER
+# Todos os engenheiros passam a ter beneficios:read sem nenhuma configuração individual
+curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-user/group-assignments \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "john.doe",
+    "ldapGroup": "engineers",
+    "applicationId": "app-uuid-001"
+  }'
+
+# Grupo "rh" do AD → role XPTO_RH
+curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-rh/group-assignments \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ldapGroup": "rh",
+    "applicationId": "app-uuid-001"
+  }'
+
+# Grupo "administrators" do AD → role XPTO_ADMIN
+curl -X POST http://localhost:8082/api/v1/roles/role-uuid-xpto-admin/group-assignments \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ldapGroup": "administrators",
     "applicationId": "app-uuid-001"
   }'
 ```
+
+> A partir deste ponto, nenhuma configuração adicional é necessária. Quando um novo
+> engenheiro entrar no grupo "engineers" do AD, terá acesso ao Portal XPTO na próxima vez
+> que fizer login — sem nenhuma intervenção na plataforma de autorização.
 
 ---
 

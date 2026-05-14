@@ -1,6 +1,7 @@
 package com.authplatform.authorization.infrastructure.web.controller;
 
 import com.authplatform.authorization.domain.port.in.CheckPermissionUseCase;
+import com.authplatform.authorization.infrastructure.web.security.AuthPlatformPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -17,25 +18,32 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/authorization")
 @RequiredArgsConstructor
-@Tag(name = "Authorization", description = "RBAC permission and role endpoints")
+@Tag(name = "Authorization", description = "RBAC permission check endpoints (Model 1 — LDAP as source of truth)")
 public class AuthorizationController {
 
     private final CheckPermissionUseCase checkPermissionUseCase;
 
     @GetMapping("/check")
-    @Operation(summary = "Check if a user has a specific permission on a resource")
+    @Operation(summary = "Check if the authenticated user has a specific permission",
+               description = "Permission is derived from the user's LDAP groups present in the JWT. " +
+                             "No manual per-user assignment is required.")
     public ResponseEntity<Map<String, Object>> checkPermission(
             Authentication authentication,
             @RequestParam String applicationId,
             @RequestParam String resource,
             @RequestParam String action) {
 
-        String username = authentication.getName();
-        boolean allowed = checkPermissionUseCase.hasPermission(username, applicationId, resource, action);
+        AuthPlatformPrincipal principal = extractPrincipal(authentication);
+        boolean allowed = checkPermissionUseCase.hasPermission(
+            principal.username(),
+            principal.ldapGroups(),
+            principal.ldapRoles(),
+            applicationId, resource, action
+        );
 
         return ResponseEntity.ok(Map.of(
             "allowed", allowed,
-            "username", username,
+            "username", principal.username(),
             "applicationId", applicationId,
             "resource", resource,
             "action", action
@@ -43,20 +51,42 @@ public class AuthorizationController {
     }
 
     @GetMapping("/permissions")
-    @Operation(summary = "Get all permissions for a user in an application")
+    @Operation(summary = "List all permissions for the authenticated user in an application",
+               description = "Returns permissions derived from the user's LDAP groups in the JWT. " +
+                             "Also returns the matched Role names for observability.")
     public ResponseEntity<Map<String, Object>> getUserPermissions(
             Authentication authentication,
             @RequestParam String applicationId) {
 
-        String username = authentication.getName();
-        List<String> permissions = checkPermissionUseCase.getUserPermissions(username, applicationId);
-        List<String> roles = checkPermissionUseCase.getUserRoles(username, applicationId);
+        AuthPlatformPrincipal principal = extractPrincipal(authentication);
+
+        List<String> permissions = checkPermissionUseCase.getUserPermissions(
+            principal.username(),
+            principal.ldapGroups(),
+            principal.ldapRoles(),
+            applicationId
+        );
+
+        List<String> roles = checkPermissionUseCase.getUserRoles(
+            principal.ldapGroups(),
+            applicationId
+        );
 
         return ResponseEntity.ok(Map.of(
-            "username", username,
+            "username", principal.username(),
             "applicationId", applicationId,
+            "ldapGroups", principal.ldapGroups(),
             "roles", roles,
             "permissions", permissions
         ));
+    }
+
+    private AuthPlatformPrincipal extractPrincipal(Authentication authentication) {
+        if (authentication.getPrincipal() instanceof AuthPlatformPrincipal principal) {
+            return principal;
+        }
+        // Fallback: JWT without groups (e.g. emitted by older auth-service version)
+        String username = authentication.getName();
+        return AuthPlatformPrincipal.of(username, List.of(), List.of());
     }
 }

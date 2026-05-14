@@ -47,6 +47,16 @@ public class RoleRepositoryAdapter implements RoleRepository {
     }
 
     @Override
+    public List<Role> findByLdapGroupsAndApplicationId(List<String> ldapGroups, String applicationId) {
+        if (ldapGroups == null || ldapGroups.isEmpty()) {
+            return List.of();
+        }
+        return jpaRepository.findByLdapGroupsAndApplicationId(ldapGroups, applicationId).stream()
+            .map(this::toDomain)
+            .toList();
+    }
+
+    @Override
     @Transactional
     public Role assignPermission(String roleId, String permissionId) {
         RoleEntity role = jpaRepository.findById(roleId)
